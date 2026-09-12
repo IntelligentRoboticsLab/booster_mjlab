@@ -1,0 +1,36 @@
+<mujoco model="ball">
+    <compiler angle="radian" meshdir="assets" autolimits="true" />
+
+    <asset>
+        <material name="ball_white" rgba="1.0 1.0 1.0 1.0" />
+        <material name="ball_black" rgba="0.1 0.1 0.1 1.0" />
+        <mesh name="ball_mesh_0" file="ball_size5_0.obj" />
+        <mesh name="ball_mesh_1" file="ball_size5_1.obj" />
+    </asset>
+
+    <default>
+        <default class="ball_visual">
+            <geom contype="0" conaffinity="0" group="2" />
+        </default>
+        <default class="ball_collision">
+            <geom contype="1" conaffinity="1" group="3" />
+        </default>
+    </default>
+
+    <worldbody>
+        <!-- Soccer ball (Size 5: diameter ~22cm, radius ~0.11m) -->
+        <body name="ball" pos="0 0 0">
+            <freejoint name="ball_joint" />
+
+            <!-- Visual meshes -->
+            <geom name="ball_visual_0" class="ball_visual" type="mesh" mesh="ball_mesh_0" material="ball_white" />
+            <geom name="ball_visual_1" class="ball_visual" type="mesh" mesh="ball_mesh_1" material="ball_black" />
+
+            <!-- Collision sphere (simplified) -->
+            <geom name="ball_collision" class="ball_collision" type="sphere" size="0.11" mass="0.43" />
+
+            <!-- Ball center site -->
+            <site name="ball_site" pos="0 0 0" size="0.01" rgba="1 0 0 1" />
+        </body>
+    </worldbody>
+</mujoco>

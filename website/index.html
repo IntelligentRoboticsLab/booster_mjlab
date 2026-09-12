@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>booster_mjlab</title>
+  <meta name="description" content="An mjlab integration for the Booster K1: robot model, training tasks and an AMP motion-prior pipeline, from simulation to the real robot.">
+  <link rel="canonical" href="https://intelligentroboticslab.github.io/booster_mjlab/">
+  <meta property="og:url" content="https://intelligentroboticslab.github.io/booster_mjlab/">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="booster_mjlab">
+  <meta property="og:description" content="An mjlab integration for the Booster K1: robot model, training tasks and an AMP motion-prior pipeline, from simulation to the real robot.">
+  <meta property="og:image" content="https://intelligentroboticslab.github.io/booster_mjlab/static/images/social-preview.jpg">
+  <meta property="og:image:type" content="image/jpeg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Booster K1 robot traversing colorful terrain in simulation.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image" content="https://intelligentroboticslab.github.io/booster_mjlab/static/images/social-preview.jpg">
+  <meta name="twitter:image:alt" content="Booster K1 robot traversing colorful terrain in simulation.">
+  <meta name="twitter:title" content="booster_mjlab">
+  <meta name="twitter:description" content="An mjlab integration for the Booster K1: robot model, training tasks and an AMP motion-prior pipeline, from simulation to the real robot.">
+  <link rel="icon" type="image/svg+xml" href="./static/images/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./static/css/bulma.min.css">
+  <link rel="stylesheet" href="./static/css/template.css">
+  <link rel="stylesheet" href="./static/css/project.css">
+  <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/","@mujoco/mujoco":"https://cdn.jsdelivr.net/npm/@mujoco/mujoco@3.13.0/mujoco.js"}}</script>
+</head>
+<body>
+<section class="hero">
+  <div class="hero-body">
+    <div class="container is-max-desktop has-text-centered">
+      <h1 class="title is-1 publication-title">booster_mjlab</h1>
+      <p class="tldr">An <a href="https://github.com/mujocolab/mjlab">mjlab</a> integration for the Booster K1: robot model, training tasks and an AMP motion-prior pipeline, from simulation to the real robot.</p>
+      <div class="publication-links">
+        <span class="link-block"><a href="https://github.com/IntelligentRoboticsLab/booster_mjlab" class="button is-dark is-rounded"><span class="icon"><svg class="gh-logo" viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></span><span>GitHub</span></a></span>
+        <span class="link-block"><a href="https://huggingface.co/datasets/whirlwind-ams/lafan_locomotion_k1" class="button is-dark is-rounded"><span class="icon"><img class="hf-logo" src="./static/images/hf-logo.svg" alt=""></span><span>Sample motion dataset</span></a></span>
+      </div>
+      <div class="team-logo">
+        <a class="uva-logo" href="https://uva.nl"><img src="./static/images/uva_logo.svg" alt="University of Amsterdam" width="426" height="95"></a>
+        <a class="irl-logo" href="https://www.intelligentroboticslab.nl"><img src="./static/images/irl_logo.svg" alt="Intelligent Robotics Lab" width="299" height="262"></a>
+        <a class="whirlwind-logo" href="https://whirlwind.team"><img src="./static/images/text_logo.svg" alt="whIRLwind Amsterdam" width="391" height="141"></a>
+      </div>
+    </div>
+  </div>
+</section>
+<section class="section" id="simulation">
+  <div class="container is-max-desktop carousel-container">
+    <h2 class="row-title">In simulation</h2>
+    <p class="row-subcaption">Locomotion from the AMP velocity task, acrobatics from motion tracking</p>
+    <div class="video-carousel sim-clips" role="region" aria-roledescription="carousel" aria-label="Simulation clips">
+      <div class="carousel-track" tabindex="0" aria-label="Video clips; use left and right arrow keys to browse">
+        <figure class="carousel-card"><button class="video-open" type="button" data-title="Kick" aria-label="Play kick"><video muted loop playsinline preload="none" poster="./static/images/sim/kick.jpg" tabindex="-1" aria-hidden="true"><source src="https://whirlwind.team/publications/booster-mjlab/videos/sim/kick.mp4" type="video/mp4"></video></button></figure>
+        <figure class="carousel-card"><button class="video-open" type="button" data-title="Walk across" aria-label="Play walk across"><video muted loop playsinline preload="none" poster="./static/images/sim/walk_across.jpg" tabindex="-1" aria-hidden="true"><source src="https://whirlwind.team/publications/booster-mjlab/videos/sim/walk_across.mp4" type="video/mp4"></video></button></figure>
+        <figure class="carousel-card"><button class="video-open" type="button" data-title="Sprint" aria-label="Play sprint"><video muted loop playsinline preload="none" poster="./static/images/sim/sprint_follow.jpg" tabindex="-1" aria-hidden="true"><source src="https://whirlwind.team/publications/booster-mjlab/videos/sim/sprint_follow.mp4" type="video/mp4"></video></button></figure>
+        <figure class="carousel-card"><button class="video-open" type="button" data-title="Side flip" aria-label="Play side flip"><video muted loop playsinline preload="none" poster="./static/images/sim/gulp.jpg" tabindex="-1" aria-hidden="true"><source src="https://whirlwind.team/publications/booster-mjlab/videos/sim/gulp.mp4" type="video/mp4"></video></button></figure>
+        <figure class="carousel-card"><button class="video-open" type="button" data-title="Strafe across" aria-label="Play strafe across"><video muted loop playsinline preload="none" poster="./static/images/sim/strafe_across.jpg" tabindex="-1" aria-hidden="true"><source src="https://whirlwind.team/publications/booster-mjlab/videos/sim/strafe_across.mp4" type="video/mp4"></video></button></figure>
+        <figure class="carousel-card"><button class="video-open" type="button" data-title="Thomas flare" aria-label="Play thomas flare"><video muted loop playsinline preload="none" poster="./static/images/sim/thomas_flare.jpg" tabindex="-1" aria-hidden="true"><source src="https://whirlwind.team/publications/booster-mjlab/videos/sim/thomas_flare.mp4" type="video/mp4"></video></button></figure>
+        <figure class="carousel-card"><button class="video-open" type="button" data-title="Out and back" aria-label="Play out and back"><video muted loop playsinline preload="none" poster="./static/images/sim/out_and_back.jpg" tabindex="-1" aria-hidden="true"><source src="https://whirlwind.team/publications/booster-mjlab/videos/sim/out_and_back.mp4" type="video/mp4"></video></button></figure>
+      </div>
+      <button class="carousel-arrow previous" type="button" aria-label="Previous clips"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M15 5l-7 7 7 7"/></svg></button>
+      <button class="carousel-arrow next" type="button" aria-label="Next clips"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 5l7 7-7 7"/></svg></button>
+    </div>
+  </div>
+</section>
+<section class="section" id="demos">
+  <div class="container is-max-desktop carousel-container">
+    <h2 class="row-title">On the real robot</h2>
+    <p class="row-subcaption">AMP velocity-tracking policy on the Booster K1 after 30k training steps</p>
+    <div class="video-carousel" role="region" aria-roledescription="carousel" aria-label="Real-robot demonstrations">
+      <div class="carousel-track" tabindex="0" aria-label="Video clips; use left and right arrow keys to browse">
+        <figure class="carousel-card"><button class="video-open" type="button" data-title="Diagonal turn" aria-label="Play diagonal turn"><video muted loop playsinline preload="none" poster="./static/images/diagonal_turn.jpg" tabindex="-1" aria-hidden="true"><source src="https://whirlwind.team/publications/booster-mjlab/videos/diagonal_turn.mp4" type="video/mp4"></video></button></figure>
+        <figure class="carousel-card"><button class="video-open" type="button" data-title="Forward and backward" aria-label="Play forward and backward"><video muted loop playsinline preload="none" poster="./static/images/forward_backward.jpg" tabindex="-1" aria-hidden="true"><source src="https://whirlwind.team/publications/booster-mjlab/videos/forward_backward.mp4" type="video/mp4"></video></button></figure>
+        <figure class="carousel-card"><button class="video-open" type="button" data-title="Continuous sequence" aria-label="Play continuous sequence"><video muted loop playsinline preload="none" poster="./static/images/loop.jpg" tabindex="-1" aria-hidden="true"><source src="https://whirlwind.team/publications/booster-mjlab/videos/loop.mp4" type="video/mp4"></video></button></figure>
+        <figure class="carousel-card"><button class="video-open" type="button" data-title="Lateral movement" aria-label="Play lateral movement"><video muted loop playsinline preload="none" poster="./static/images/strafe.jpg" tabindex="-1" aria-hidden="true"><source src="https://whirlwind.team/publications/booster-mjlab/videos/strafe.mp4" type="video/mp4"></video></button></figure>
+      </div>
+      <button class="carousel-arrow previous" type="button" aria-label="Previous clips"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M15 5l-7 7 7 7"/></svg></button>
+      <button class="carousel-arrow next" type="button" aria-label="Next clips"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 5l7 7-7 7"/></svg></button>
+    </div>
+  </div>
+</section>
+<section class="section" id="interactive">
+  <div class="container is-max-desktop">
+    <h2 class="row-title">In your browser</h2>
+    <p class="row-subcaption">The AMP velocity policy running live in MuJoCo, steered with a joystick, keyboard or gamepad</p>
+    <div class="demo" tabindex="0" aria-label="Interactive K1 simulation">
+      <canvas class="demo-canvas" aria-hidden="true"></canvas>
+      <div class="demo-overlay demo-start">
+        <button class="button is-dark is-rounded demo-start-button" type="button">Load interactive demo <span class="demo-size">≈14 MB</span></button>
+        <p class="demo-blurb">The exported policy runs at 50 Hz on MuJoCo compiled to WebAssembly, entirely in your browser.</p>
+        <p class="demo-status" role="status"></p>
+      </div>
+      <div class="demo-hud" hidden>
+        <p class="demo-readout">vx 0.00 m/s   vy 0.00 m/s   yaw 0.00 rad/s</p>
+        <button class="demo-reset" type="button">Reset</button>
+      </div>
+      <div class="joystick" aria-label="Walk forward or backward, push sideways to turn"><div class="joystick-knob"></div><span class="joystick-label">walk / turn</span></div>
+    </div>
+    <p class="demo-help">Push the stick forward to walk and sideways to turn, or click the scene and use <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to move and <kbd>Q</kbd><kbd>E</kbd> to turn. Gamepads work too. Drag with the mouse to orbit the camera.</p>
+  </div>
+</section>
+<section class="section" id="motions">
+  <div class="container is-max-desktop has-text-centered">
+    <h2 class="row-title">Motion references</h2>
+    <div class="content"><p>Locomotion clips from <a href="https://github.com/ubisoft/ubisoft-laforge-animation-dataset">LAFAN1</a>, retargeted onto the parallel-ankle K1. They drive the AMP motion prior, and the built-in motion viewer lets you browse, play back and edit clips before training.</p></div>
+    <figure class="motion-figure"><video autoplay muted loop playsinline preload="metadata" width="900" height="506" aria-label="Retargeted reference motions on the Booster K1 model"><source src="https://whirlwind.team/publications/booster-mjlab/videos/motion_grid.mp4" type="video/mp4"></video></figure>
+    <div class="publication-links"><span class="link-block"><a href="https://huggingface.co/datasets/whirlwind-ams/lafan_locomotion_k1" class="button is-dark is-rounded"><span class="icon"><img class="hf-logo" src="./static/images/hf-logo.svg" alt=""></span><span>Sample motion dataset</span></a></span></div>
+  </div>
+</section>
+<section class="section" id="more">
+  <div class="container is-max-desktop has-text-centered">
+    <h2 class="row-title">Hungry for more?</h2>
+    <div class="content"><p>booster_mjlab is a whIRLwind project. Our mission is to push the boundaries of robotics and AI in robot football. We are always looking for interested students or collaboration partners to join us. Learn more at <a href="https://whirlwind.team">whirlwind.team</a>.</p></div>
+    <a href="https://whirlwind.team" class="more-logo"><img src="./static/images/text_logo.svg" alt="whIRLwind Amsterdam" width="391" height="141" loading="lazy"></a>
+  </div>
+</section>
+<footer class="footer"><div class="container is-max-desktop has-text-centered">
+  <p>Built with <a href="https://github.com/mujocolab/mjlab">mjlab</a>, with motion references from <a href="https://github.com/ubisoft/ubisoft-laforge-animation-dataset">LAFAN1</a>.</p>
+  <p>Layout inspired by the <a href="https://hongsukchoi.github.io/fpo-control/">FPO</a> project page.</p>
+</div></footer>
+<dialog class="video-dialog" aria-label="Video"><div class="dialog-heading"><button class="dialog-close" type="button" aria-label="Close video">×</button></div><video controls playsinline preload="none"></video></dialog>
+<script src="./static/js/carousel.js"></script>
+<script type="module" src="./static/js/demo.js"></script>
+<script>
+  // Module scripts and fetch() do not work from file:// URLs, so the demo needs a web server.
+  if (location.protocol === 'file:') {
+    document.querySelectorAll('.demo').forEach(demo => {
+      demo.querySelector('.demo-start-button').disabled = true;
+      const status = demo.querySelector('.demo-status');
+      status.classList.add('is-error');
+      status.textContent = 'The demo needs to be served over HTTP. Run "python3 -m http.server -d website" and open http://localhost:8000/.';
+    });
+  }
+</script>
+</body>
+</html>

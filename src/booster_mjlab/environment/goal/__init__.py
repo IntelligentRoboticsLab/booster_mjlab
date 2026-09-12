@@ -1,0 +1,1 @@
+"""Soccer goal environment object."""

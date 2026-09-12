@@ -1,0 +1,1 @@
+"""Soccer ball environment object."""

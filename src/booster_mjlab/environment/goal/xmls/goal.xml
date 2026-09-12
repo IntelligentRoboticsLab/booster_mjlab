@@ -1,0 +1,91 @@
+<mujoco model="goal">
+    <compiler angle="radian" meshdir="assets" autolimits="true" />
+
+    <asset>
+        <material name="goal_white" rgba="1.0 1.0 1.0 1.0" />
+        <mesh name="goal_mesh" file="goal_180_120.obj" />
+    </asset>
+
+    <default>
+        <default class="goal_visual">
+            <geom contype="0" conaffinity="0" group="2" />
+        </default>
+        <default class="goal_collision">
+            <geom contype="1" conaffinity="1" group="3" />
+        </default>
+    </default>
+
+    <worldbody>
+        <body>
+            <geom class="goal_visual" type="mesh" mesh="goal_mesh" material="goal_white" />
+
+            <!-- Use primitive colliders to avoid convex-hull blocking across the goal mouth. -->
+            <geom
+                class="goal_collision"
+                type="box"
+                pos="-0.847056 0.0 0.6"
+                size="0.052941 0.06 0.6"
+            />
+            <geom
+                class="goal_collision"
+                type="box"
+                pos="0.847056 0.0 0.6"
+                size="0.052941 0.06 0.6"
+            />
+            <geom
+                class="goal_collision"
+                type="box"
+                pos="-0.847056 -0.48 0.533333"
+                size="0.04 0.045 0.533333"
+            />
+            <geom
+                class="goal_collision"
+                type="box"
+                pos="0.847056 -0.48 0.533333"
+                size="0.04 0.045 0.533333"
+            />
+            <geom
+                class="goal_collision"
+                type="box"
+                pos="0.0 -0.48 1.026667"
+                size="0.847056 0.045 0.04"
+            />
+            <geom
+                class="goal_collision"
+                type="box"
+                pos="0.0 -0.48 0.03"
+                size="0.847056 0.045 0.03"
+            />
+            <geom
+                class="goal_collision"
+                type="box"
+                pos="-0.823 -0.24 1.051713"
+                size="0.04 0.24 0.045"
+            />
+            <geom
+                class="goal_collision"
+                type="box"
+                pos="0.823 -0.24 1.051713"
+                size="0.04 0.24 0.045"
+            />
+            <geom
+                class="goal_collision"
+                type="box"
+                pos="-0.823 -0.24 0.03"
+                size="0.04 0.24 0.03"
+            />
+            <geom
+                class="goal_collision"
+                type="box"
+                pos="0.823 -0.24 0.03"
+                size="0.04 0.24 0.03"
+            />
+            <geom
+                class="goal_collision"
+                type="box"
+                pos="0.0 0.0 1.147059"
+                size="0.847056 0.06 0.052941"
+            />
+        </body>
+    </worldbody>
+</mujoco>

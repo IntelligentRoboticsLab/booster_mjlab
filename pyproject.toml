@@ -1,0 +1,37 @@
+[project]
+name = "booster_mjlab"
+version = "0.1.0"
+description = "mjlab integration for the Booster Robotics K1 robot"
+readme = "README.md"
+authors = [{ name = "Harold Ruiter", email = "harold@soaratorium.com" }]
+requires-python = ">=3.13"
+dependencies = [
+    "huggingface-hub>=1.19.0",
+    "mjlab",
+    "pandas>=3.0.3",
+    "pyarrow>=24.0.0",
+    "scipy>=1.16.3",
+    "viser>=1.1.0",
+]
+
+[project.scripts]
+list_envs = "mjlab.scripts.list_envs:main"
+train = "booster_mjlab.scripts.train:main"
+play = "booster_mjlab.scripts.play:main"
+visualize-motions = "booster_mjlab.scripts.visualize_motions:main"
+upload-motion = "booster_mjlab.scripts.upload_motion:main"
+motions-to-hf = "booster_mjlab.scripts.motions_to_hf:main"
+export-web-demo = "booster_mjlab.scripts.export_web_demo:main"
+
+[build-system]
+requires = ["uv_build>=0.9.5,<0.10.0"]
+build-backend = "uv_build"
+
+[project.entry-points."mjlab.tasks"]
+booster_mjlab = "booster_mjlab.tasks"
+
+[tool.uv.sources]
+mjlab = { git = "https://github.com/mujocolab/mjlab", rev = "b517e0c489139e7fcee95702cfb2b01931264985" }
+
+[dependency-groups]
+dev = ["ruff>=0.14.4"]
