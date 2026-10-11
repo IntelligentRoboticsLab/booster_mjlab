@@ -3,8 +3,6 @@ from __future__ import annotations
 import torch
 from tensordict import TensorDict
 
-from booster_mjlab.amp.curriculums import AMP_STYLE_WEIGHT_ATTR
-
 AMP_STYLE_REWARD_KEY = "Episode_Metrics/Amp/style_reward"
 AMP_TASK_REWARD_KEY = "Episode_Metrics/Amp/task_reward"
 AMP_STYLE_TASK_RATIO_KEY = "Episode_Metrics/Amp/style_task_ratio"
@@ -42,8 +40,7 @@ class AmpRunner:
         return True
 
     def _compute_style_weight(self) -> float:
-        env = self.env.unwrapped
-        return getattr(env, AMP_STYLE_WEIGHT_ATTR, self.style_reward_weight)
+        return self.style_reward_weight
 
     def _compute_style_reward_scale(self) -> float:
         """Match the environment's reward-rate scaling convention."""

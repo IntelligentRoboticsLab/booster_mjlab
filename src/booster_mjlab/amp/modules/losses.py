@@ -30,18 +30,17 @@ def make_loss_function(loss_type: str, **kwargs) -> DiscriminatorLoss:
     Args:
         loss_type (str): The type of loss function to create. Supported types are
                          'bce', 'hinge', and 'wasserstein'.
-        **kwargs: Additional keyword arguments for specific loss functions.
+        **kwargs: Keyword arguments for the loss constructor; unknown kwargs raise.
     Returns:
         nn.Module: An instance of the specified loss function.
     """
-    normalized_type = (loss_type or "hinge").lower()
+    normalized_type = (loss_type or "wasserstein").lower()
     if normalized_type in {"bce", "bcewithlogits"}:
-        return BCELoss()
+        return BCELoss(**kwargs)
     elif normalized_type == "hinge":
-        return HingeLoss()
+        return HingeLoss(**kwargs)
     elif normalized_type in {"wasserstein", "wgan"}:
-        eta_wgan = kwargs.get("eta", 1.0)
-        return WGANLoss(eta=eta_wgan)
+        return WGANLoss(**kwargs)
     else:
         raise ValueError(
             f"Unsupported loss type: {loss_type}. Supported types are 'hinge', 'bce', and 'wasserstein'."
@@ -115,37 +114,38 @@ class HingeLoss(DiscriminatorLoss):
 
 
 class WGANLoss(DiscriminatorLoss):
-    """Wasserstein loss with tanh-squashed critic outputs.
+    """Wasserstein critic loss on the raw critic score.
 
-    This implements a Wasserstein-style objective of the form
+        L = E[D(policy)] - E[D(expert)] + drift_coef * (0.5 * (E[D(policy)] + E[D(expert)]))^2
 
-        L = E[D(policy)] - E[D(expert)]
-
-    where the critic outputs can be scaled and squashed with a `tanh`
-    nonlinearity as
-
-        D̃(x) = tanh(eta_wgan * D(x)),
-
-    to keep values bounded and improve numerical stability when using the
-    critic as a reward signal. Note that this deviates slightly from the
-    original unbounded critic in:
+    The Lipschitz constraint comes from the WGAN-GP penalty on expert/policy
+    interpolates (:meth:`Discriminator.compute_grad_penalty`). No ``tanh``
+    squashing: a saturated tanh zeroes ``dL/dD`` for confidently scored samples on
+    both sides, so the critic could never correct a policy sample it mis-scores as
+    expert. The Wasserstein term is invariant to ``D -> D + c``; the drift term pins
+    the midpoint of the two batch means at zero. The reward standardizes the score by
+    the latest policy-score statistics before softplus
+    (:meth:`Discriminator.predict_reward`).
 
         "Wasserstein GAN" (Arjovsky et al., 2017), https://arxiv.org/abs/1701.07875
+        "Improved Training of Wasserstein GANs" (Gulrajani et al., 2017),
+        https://arxiv.org/abs/1704.00028
     """
 
-    def __init__(self, eta: float = 1.0) -> None:
+    def __init__(self, drift_coef: float = 1.0e-2) -> None:
         super().__init__()
-        self.eta = eta
+        self.drift_coef = drift_coef
 
     def forward(
         self,
         policy_samples: torch.Tensor,
         expert_samples: torch.Tensor,
     ) -> torch.Tensor:
-        policy_samples = torch.tanh(self.eta * policy_samples)
-        expert_samples = torch.tanh(self.eta * expert_samples)
-
-        return policy_samples.mean() - expert_samples.mean()
+        policy_mean = policy_samples.mean()
+        expert_mean = expert_samples.mean()
+        wasserstein = policy_mean - expert_mean
+        drift = self.drift_coef * (0.5 * (policy_mean + expert_mean)).pow(2)
+        return wasserstein + drift
 
     def get_grad_penalty_data(
         self,

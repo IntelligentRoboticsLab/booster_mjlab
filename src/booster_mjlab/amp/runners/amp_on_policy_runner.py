@@ -22,6 +22,8 @@ class AmpRslRlPpoAlgorithmCfg(RslRlPpoAlgorithmCfg):
 
     class_name: str = "booster_mjlab.amp.algorithms.amp_ppo:AmpPPO"
     """Fully qualified class name for the AMP PPO implementation."""
+    amp_grad_penalty_lambda: float = 10.0
+    """Gradient-penalty coefficient for AMP discriminator training."""
 
 
 @dataclass

@@ -5,6 +5,7 @@ from torch.nn import functional as F
 
 from booster_mjlab.amp.modules.losses import make_loss_function
 from rsl_rl.modules import EmpiricalNormalization
+from rsl_rl.utils import resolve_optimizer
 
 
 class Discriminator(nn.Module):
@@ -14,10 +15,9 @@ class Discriminator(nn.Module):
         input_dim: Dimension of a flattened K-frame AMP observation history.
         hidden_layer_sizes: List of hidden layer sizes.
         reward_scale: Scale factor for computed rewards.
-        reward_clamp_epsilon: Epsilon for reward clamping.
         device: Device to run the model on.
         loss_type: Type of loss function ('hinge', 'bce', 'wasserstein').
-        eta_wgan: Scaling factor for Wasserstein loss.
+        loss_fn_kwargs: Extra kwargs for the loss (``drift_coef`` for 'wasserstein').
         empirical_normalization: Whether to normalize AMP observations internally.
     """
 
@@ -26,20 +26,16 @@ class Discriminator(nn.Module):
         input_dim: int,
         hidden_layer_sizes: list[int],
         reward_scale: float,
-        reward_clamp_epsilon: float = 1.0e-4,
         device: torch.device = torch.device("cpu"),
-        loss_type: str = "hinge",
-        eta_wgan: float = 1.0,
-        use_minibatch_std: bool = True,
+        loss_type: str = "wasserstein",
+        loss_fn_kwargs: dict | None = None,
         empirical_normalization: bool = False,
     ) -> None:
         super().__init__()
         self.device = device
         self.input_dim = input_dim
         self.reward_scale = reward_scale
-        self.reward_clamp_epsilon = reward_clamp_epsilon
         self.empirical_normalization = empirical_normalization
-        self.use_minibatch_std = use_minibatch_std
 
         if empirical_normalization:
             self.amp_normalizer = EmpiricalNormalization(input_dim).to(device)
@@ -53,12 +49,44 @@ class Discriminator(nn.Module):
             layers.append(nn.ReLU())
             in_dim = hidden_dim
         self.trunk = nn.Sequential(*layers).to(device)
-        final_in_dim = hidden_layer_sizes[-1] + (1 if use_minibatch_std else 0)
-        self.linear = nn.Linear(final_in_dim, 1).to(device)
+        self.linear = nn.Linear(hidden_layer_sizes[-1], 1).to(device)
         self.loss_type = loss_type.lower()
-        loss_kwargs = {"eta": eta_wgan} if self.loss_type == "wasserstein" else {}
-        self.eta_wgan = eta_wgan
-        self.loss_fn = make_loss_function(self.loss_type, **loss_kwargs)
+        self.loss_fn = make_loss_function(self.loss_type, **(loss_fn_kwargs or {}))
+        if self.loss_type == "wasserstein":
+            # Policy-score statistics that standardize the unscaled critic score before
+            # the reward squashing; refreshed by update_reward_normalization().
+            self.register_buffer("reward_score_mean", torch.zeros((), device=device))
+            self.register_buffer("reward_score_std", torch.ones((), device=device))
+
+    def make_optimizer(
+        self,
+        optimizer: str = "adam",
+        optimizer_kwargs: dict | None = None,
+        trunk_weight_decay: float = 1.0e-3,
+        head_weight_decay: float = 1.0e-1,
+    ) -> torch.optim.Optimizer:
+        """Build the discriminator's optimizer with separate trunk/head weight decay."""
+        kwargs = dict(optimizer_kwargs or {})
+        kwargs.setdefault("lr", 1.0e-4)
+        try:
+            optimizer_cls = resolve_optimizer(optimizer.lower())
+        except ValueError:
+            optimizer_cls = getattr(torch.optim, optimizer)
+        return optimizer_cls(
+            [
+                {
+                    "params": self.trunk.parameters(),
+                    "weight_decay": trunk_weight_decay,
+                    "name": "amp_trunk",
+                },
+                {
+                    "params": self.linear.parameters(),
+                    "weight_decay": head_weight_decay,
+                    "name": "amp_head",
+                },
+            ],
+            **kwargs,
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through the discriminator.
@@ -77,26 +105,9 @@ class Discriminator(nn.Module):
             return x
         return self.amp_normalizer(x)
 
-    def _forward_normalized(
-        self, x: torch.Tensor, *, detach_minibatch_std: bool = False
-    ) -> torch.Tensor:
+    def _forward_normalized(self, x: torch.Tensor) -> torch.Tensor:
         """Run the discriminator network on already-normalized histories."""
-        h = self.trunk(x)
-        if self.use_minibatch_std:
-            if detach_minibatch_std:
-                with torch.no_grad():
-                    s = self._minibatch_std_scalar(h)
-            else:
-                s = self._minibatch_std_scalar(h)
-            h = torch.cat([h, s], dim=-1)
-        return self.linear(h)
-
-    def _minibatch_std_scalar(self, h: torch.Tensor) -> torch.Tensor:
-        """Mean over feature-wise std across the batch; shape (B,1)."""
-        if h.shape[0] <= 1:
-            return h.new_zeros((h.shape[0], 1))
-        s = h.float().std(dim=0, unbiased=False).mean()
-        return s.expand(h.shape[0], 1).to(h.dtype)
+        return self.linear(self.trunk(x))
 
     def predict_reward(self, history: torch.Tensor) -> torch.Tensor:
         """Predict reward based on discriminator output.
@@ -113,12 +124,28 @@ class Discriminator(nn.Module):
         with torch.no_grad():
             logits = self.forward(history)
             if self.loss_type == "wasserstein":
-                logits = torch.tanh(self.eta_wgan * logits)
-                reward = torch.exp(logits)
-            else:
-                # softplus(x) = log(1 + exp(x)) = -log(1 - sigmoid(x))
-                reward = F.softplus(logits)
+                # The critic score has no fixed scale (the expert/policy gap reaches
+                # ~20), which leaves most policy samples in softplus's flat tail.
+                # Standardizing by the policy-score statistics keeps the reward graded
+                # across the policy distribution and its magnitude stable over training.
+                logits = (logits - self.reward_score_mean) / self.reward_score_std
+            # softplus(x) = -log(1 - sigmoid(x)) for BCE logits; for the Wasserstein
+            # critic it keeps the reward positive and increasing in the score.
+            reward = F.softplus(logits)
             return (self.reward_scale * reward).squeeze(-1)
+
+    def update_reward_normalization(self, policy_history: torch.Tensor) -> None:
+        """Set the Wasserstein reward statistics from the current critic's policy scores.
+
+        Args:
+            policy_history: Raw policy AMP histories, ideally the latest rollout.
+        """
+        if self.loss_type != "wasserstein":
+            return
+        with torch.no_grad():
+            scores = self.forward(policy_history).squeeze(-1)
+            self.reward_score_mean.copy_(scores.mean())
+            self.reward_score_std.copy_(scores.std(unbiased=False).clamp_min(1.0e-2))
 
     def compute_loss(
         self,
@@ -172,11 +199,10 @@ class Discriminator(nn.Module):
             expert_samples, policy_samples, self.device
         )
         data = self._normalize(data).detach().requires_grad_(True)
-        scores = self._forward_normalized(data, detach_minibatch_std=True)
+        scores = self._forward_normalized(data)
 
         if self.loss_type == "wasserstein":
-            # WGAN-GP: penalty on tanh-transformed output
-            scores = torch.tanh(self.eta_wgan * scores)
+            # WGAN-GP on the raw critic output: lambda * (||dD/dx|| - 1)^2.
             grad = autograd.grad(
                 outputs=scores,
                 inputs=data,
