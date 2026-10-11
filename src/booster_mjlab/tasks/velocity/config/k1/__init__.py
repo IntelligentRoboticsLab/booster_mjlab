@@ -41,20 +41,19 @@ _AMP_TASKS = {
     "Flat-Amp-DA": (booster_k1_flat_env_cfg, booster_k1_amp_ppo_symmetric_runner_cfg),
 }
 
-for use_muon in (False, True):
-    optimizer = "-Muon" if use_muon else ""
+for optimizer, task_suffix in (("adam", ""), ("muon", "-Muon")):
     for name, (env_cfg_fn, rl_cfg_fn) in _PPO_TASKS.items():
         register_mjlab_task(
-            task_id=f"Mjlab-Velocity-{name}{optimizer}-Booster-K1",
+            task_id=f"Mjlab-Velocity-{name}{task_suffix}-Booster-K1",
             env_cfg=env_cfg_fn(),
             play_env_cfg=env_cfg_fn(play=True),
-            rl_cfg=rl_cfg_fn(use_muon=use_muon),
+            rl_cfg=rl_cfg_fn(optimizer=optimizer),
             runner_cls=BoosterOnPolicyRunner,
         )
     for name, (env_cfg_fn, rl_cfg_fn) in _AMP_TASKS.items():
-        rl_cfg = rl_cfg_fn(use_muon=use_muon)
+        rl_cfg = rl_cfg_fn(optimizer=optimizer)
         register_mjlab_task(
-            task_id=f"Mjlab-Velocity-{name}{optimizer}-Booster-K1",
+            task_id=f"Mjlab-Velocity-{name}{task_suffix}-Booster-K1",
             env_cfg=_with_amp_reset_cfg(env_cfg_fn(), rl_cfg),
             play_env_cfg=_with_amp_reset_cfg(env_cfg_fn(play=True), rl_cfg),
             rl_cfg=rl_cfg,

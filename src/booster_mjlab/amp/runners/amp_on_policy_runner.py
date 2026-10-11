@@ -12,7 +12,6 @@ from booster_mjlab.amp.runners.amp_support import AmpRunner
 from booster_mjlab.rl import (
     RslRlOnPolicyRunnerCfg,
     RslRlPpoAlgorithmCfg,
-    RslRlMuonPpoAlgorithmCfg,
     RslRlVecEnvWrapper,
 )
 
@@ -23,14 +22,6 @@ class AmpRslRlPpoAlgorithmCfg(RslRlPpoAlgorithmCfg):
 
     class_name: str = "booster_mjlab.amp.algorithms.amp_ppo:AmpPPO"
     """Fully qualified class name for the AMP PPO implementation."""
-
-
-@dataclass
-class AmpRslRlMuonPpoAlgorithmCfg(RslRlMuonPpoAlgorithmCfg, AmpRslRlPpoAlgorithmCfg):
-    """AMP PPO with shared Muon settings and Adam discriminator updates."""
-
-    class_name: str = "booster_mjlab.amp.algorithms.amp_ppo:AmpPPO"
-    use_muon: bool = True
 
 
 @dataclass
@@ -58,7 +49,7 @@ class AmpOnPolicyRunnerCfg(RslRlOnPolicyRunnerCfg):
     """Samples inserted per rollout once the AMP replay buffer is full."""
     num_amp_obs_steps: int = 10
     """Number of sequential observation frames in each discriminator sample."""
-    algorithm: AmpRslRlPpoAlgorithmCfg | AmpRslRlMuonPpoAlgorithmCfg = field(
+    algorithm: AmpRslRlPpoAlgorithmCfg = field(
         default_factory=AmpRslRlPpoAlgorithmCfg
     )
     """The algorithm configuration. Defaults to the AMP PPO implementation."""

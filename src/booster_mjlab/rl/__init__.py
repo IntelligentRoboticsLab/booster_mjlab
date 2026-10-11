@@ -1,7 +1,6 @@
 from .config import (
     RslRlSymmetryCfg,
     RslRlPpoAlgorithmCfg,
-    RslRlMuonPpoAlgorithmCfg,
     RslRlOnPolicyRunnerCfg,
     RslRlFastSacAlgorithmCfg,
     RslRlFastSacRunnerCfg,
@@ -17,7 +16,6 @@ __all__ = [
     # booster_mjlab
     "RslRlSymmetryCfg",
     "RslRlPpoAlgorithmCfg",
-    "RslRlMuonPpoAlgorithmCfg",
     "RslRlOnPolicyRunnerCfg",
     "RslRlFastSacAlgorithmCfg",
     "RslRlFastSacRunnerCfg",
