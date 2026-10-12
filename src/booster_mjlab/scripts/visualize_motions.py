@@ -33,6 +33,9 @@ from booster_mjlab.motion import (
 from booster_mjlab.robots.booster_k1.k1_parallel_constants import (
     K1_PARALLEL_JOINT_ORDER,
 )
+from booster_mjlab.robots.booster_t1.t1_parallel_constants import (
+    T1_PARALLEL_JOINT_ORDER,
+)
 from mjlab.envs.manager_based_rl_env import ManagerBasedRlEnvCfg
 from mjlab.scene import Scene
 from mjlab.sim.sim import Simulation
@@ -430,13 +433,17 @@ def resolve_body_id(model: mujoco.MjModel, body_name: str) -> int | None:
 
 
 def joint_layout_transform(mj_model) -> MotionTransform | None:
-    """Retarget clips onto the task's layout when it isn't the serial K1 one."""
-    if mj_model.nq - 7 != len(K1_PARALLEL_JOINT_ORDER):
-        return None
+    """Retarget serial clips onto the task's layout when it is a parallel-ankle model."""
+    num_joints = mj_model.nq - 7
+    if num_joints == len(K1_PARALLEL_JOINT_ORDER):
+        from booster_mjlab.robots.booster_k1.parallel_retarget import to_parallel
 
-    from booster_mjlab.robots.booster_k1.parallel_retarget import to_parallel
+        return to_parallel
+    if num_joints == len(T1_PARALLEL_JOINT_ORDER):
+        from booster_mjlab.robots.booster_t1.parallel_retarget import to_parallel
 
-    return to_parallel
+        return to_parallel
+    return None
 
 
 def load_motion_clip(
@@ -580,7 +587,7 @@ def apply_speed_modification(motion_file: MotionFile, factor: float) -> MotionFi
 
 
 def apply_mirror(motion_file: MotionFile) -> MotionFile:
-    """Mirror motion file left-to-right for K1 robot.
+    """Mirror motion file left-to-right (K1 or T1 serial layout).
 
     Args:
         motion_file: Input motion file

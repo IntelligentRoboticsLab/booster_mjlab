@@ -1,9 +1,10 @@
-"""Closed-form inverse kinematics for the K1 parallel ankle linkage.
+"""Closed-form inverse kinematics for a Booster parallel ankle linkage.
 
 Maps a serial ankle pose ``(pitch, roll)`` onto the six joint angles the
 closed-loop model needs per leg: the two crank drives and the two rod universal
-joints. All geometry is taken from ``xmls/k1_parallel.xml`` and expressed in the
-shank frame.
+joints. Geometry is expressed in the shank frame; :data:`K1_ANKLE` is taken from
+``xmls/k1_parallel.xml`` and is the default, other robots pass their own
+:class:`AnkleGeometry`.
 
 Each linkage reduces to one scalar equation, ``A cos(theta) + B sin(theta) = C``,
 because the rod length is fixed and the crank pivots about a single axis. The
@@ -42,21 +43,48 @@ class _Linkage:
     anchor: np.ndarray
 
     def mirrored(self) -> "_Linkage":
-        flip = np.array([1.0, -1.0, 1.0])
         return _Linkage(
-            pivot=self.pivot * flip,
-            arm=self.arm * flip,
-            rod=self.rod * flip,
-            anchor=self.anchor * flip,
+            pivot=self.pivot * _FLIP_Y,
+            arm=self.arm * _FLIP_Y,
+            rod=self.rod * _FLIP_Y,
+            anchor=self.anchor * _FLIP_Y,
         )
 
 
-_LEFT = {
-    "A": _Linkage(_CRANK_A_PIVOT, _CRANK_A_ARM, _ROD_A, _ANCHOR_A),
-    "B": _Linkage(_CRANK_B_PIVOT, _CRANK_B_ARM, _ROD_B, _ANCHOR_B),
-}
-_RIGHT = {tag: linkage.mirrored() for tag, linkage in _LEFT.items()}
-_ORIGIN = {"Left": _ANKLE_ORIGIN, "Right": _ANKLE_ORIGIN * np.array([1.0, -1.0, 1.0])}
+_FLIP_Y = np.array([1.0, -1.0, 1.0])
+
+
+@dataclass(frozen=True)
+class AnkleGeometry:
+    """Left-leg linkage geometry; the right leg is its mirror image in y."""
+
+    origin: np.ndarray
+    """Ankle pitch axis origin (ankle cross body) in the shank frame."""
+
+    foot_offset: np.ndarray
+    """Ankle roll axis origin (foot body) in the ankle cross frame."""
+
+    linkage_a: _Linkage
+    linkage_b: _Linkage
+
+    def side(self, side: str) -> tuple[np.ndarray, np.ndarray, dict[str, _Linkage]]:
+        linkages = {"A": self.linkage_a, "B": self.linkage_b}
+        if side == "Left":
+            return self.origin, self.foot_offset, linkages
+        return (
+            self.origin * _FLIP_Y,
+            self.foot_offset * _FLIP_Y,
+            {tag: linkage.mirrored() for tag, linkage in linkages.items()},
+        )
+
+
+K1_ANKLE = AnkleGeometry(
+    origin=_ANKLE_ORIGIN,
+    # The K1 foot link sits on the ankle cross origin.
+    foot_offset=np.zeros(3),
+    linkage_a=_Linkage(_CRANK_A_PIVOT, _CRANK_A_ARM, _ROD_A, _ANCHOR_A),
+    linkage_b=_Linkage(_CRANK_B_PIVOT, _CRANK_B_ARM, _ROD_B, _ANCHOR_B),
+)
 
 # Joint order returned by `solve_leg`, matching the MJCF definition order.
 LINKAGE_JOINT_SUFFIXES: tuple[str, ...] = (
@@ -70,23 +98,27 @@ LINKAGE_JOINT_SUFFIXES: tuple[str, ...] = (
 
 
 def _anchor_in_shank(
-    side: str, anchor: np.ndarray, pitch: np.ndarray, roll: np.ndarray
+    origin: np.ndarray,
+    foot_offset: np.ndarray,
+    anchor: np.ndarray,
+    pitch: np.ndarray,
+    roll: np.ndarray,
 ) -> np.ndarray:
     """Anchor position in the shank frame for a batch of ankle poses."""
     cp, sp = np.cos(pitch), np.sin(pitch)
     cr, sr = np.cos(roll), np.sin(roll)
     ax, ay, az = anchor
 
-    # Rx(roll) then Ry(pitch), applied to the constant anchor offset.
-    x_r = np.broadcast_to(ax, pitch.shape)
-    y_r = cr * ay - sr * az
-    z_r = sr * ay + cr * az
+    # Rx(roll) on the anchor offset, shifted to the roll axis, then Ry(pitch).
+    x_r = np.broadcast_to(ax + foot_offset[0], pitch.shape)
+    y_r = cr * ay - sr * az + foot_offset[1]
+    z_r = sr * ay + cr * az + foot_offset[2]
 
     x = cp * x_r + sp * z_r
     y = y_r
     z = -sp * x_r + cp * z_r
 
-    return _ORIGIN[side] + np.stack([x, y, z], axis=-1)
+    return origin + np.stack([x, y, z], axis=-1)
 
 
 def _solve_crank(linkage: _Linkage, anchor_w: np.ndarray) -> np.ndarray:
@@ -112,16 +144,21 @@ def _crank_cos_arg(linkage: _Linkage, anchor_w: np.ndarray) -> np.ndarray:
     return c / np.hypot(a, b)
 
 
-def reachable(side: str, ankle_pitch: np.ndarray, ankle_roll: np.ndarray) -> np.ndarray:
+def reachable(
+    side: str,
+    ankle_pitch: np.ndarray,
+    ankle_roll: np.ndarray,
+    geometry: AnkleGeometry = K1_ANKLE,
+) -> np.ndarray:
     """Whether both linkages can close the loop at the given ankle pose."""
     pitch, roll = np.broadcast_arrays(
         np.asarray(ankle_pitch, dtype=np.float64),
         np.asarray(ankle_roll, dtype=np.float64),
     )
-    linkages = _LEFT if side == "Left" else _RIGHT
+    origin, foot_offset, linkages = geometry.side(side)
     ok = np.ones(pitch.shape, dtype=bool)
     for linkage in linkages.values():
-        anchor_w = _anchor_in_shank(side, linkage.anchor, pitch, roll)
+        anchor_w = _anchor_in_shank(origin, foot_offset, linkage.anchor, pitch, roll)
         ok &= np.abs(_crank_cos_arg(linkage, anchor_w)) <= 1.0
     return ok
 
@@ -154,13 +191,19 @@ def _solve_rod(linkage: _Linkage, theta: np.ndarray, anchor_w: np.ndarray):
     return pitch, roll
 
 
-def solve_leg(side: str, ankle_pitch: np.ndarray, ankle_roll: np.ndarray) -> np.ndarray:
+def solve_leg(
+    side: str,
+    ankle_pitch: np.ndarray,
+    ankle_roll: np.ndarray,
+    geometry: AnkleGeometry = K1_ANKLE,
+) -> np.ndarray:
     """Solve one leg's linkage angles.
 
     Args:
       side: ``"Left"`` or ``"Right"``.
       ankle_pitch: Ankle pitch angles, any shape.
       ankle_roll: Ankle roll angles, broadcastable against ``ankle_pitch``.
+      geometry: Linkage geometry of the robot.
 
     Returns:
       Array of shape ``(..., 6)`` ordered as :data:`LINKAGE_JOINT_SUFFIXES`.
@@ -172,12 +215,12 @@ def solve_leg(side: str, ankle_pitch: np.ndarray, ankle_roll: np.ndarray) -> np.
         np.asarray(ankle_pitch, dtype=np.float64),
         np.asarray(ankle_roll, dtype=np.float64),
     )
-    linkages = _LEFT if side == "Left" else _RIGHT
+    origin, foot_offset, linkages = geometry.side(side)
 
     columns = []
     for tag in ("A", "B"):
         linkage = linkages[tag]
-        anchor_w = _anchor_in_shank(side, linkage.anchor, pitch, roll)
+        anchor_w = _anchor_in_shank(origin, foot_offset, linkage.anchor, pitch, roll)
         theta = _solve_crank(linkage, anchor_w)
         rod_pitch, rod_roll = _solve_rod(linkage, theta, anchor_w)
         columns.extend([theta, rod_pitch, rod_roll])

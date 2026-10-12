@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from mjlab.actuator import BuiltinPositionActuatorCfg
@@ -9,6 +10,19 @@ from mjlab.actuator import BuiltinPositionActuatorCfg
 ##
 # Per-motor configuration.
 ##
+
+
+def pd_gains(
+    inertia: float, natural_freq: float, damping_ratio: float
+) -> dict[str, float]:
+    """booster_train's PD gains for a joint moving ``inertia`` (kg*m^2).
+
+    k = I w^2 and d = 2 zeta w I, with w = 2 pi ``natural_freq``.
+    """
+    omega = 2.0 * math.pi * natural_freq
+    return dict(
+        stiffness=inertia * omega**2, damping=2.0 * damping_ratio * omega * inertia
+    )
 
 
 @dataclass(frozen=True, kw_only=True)

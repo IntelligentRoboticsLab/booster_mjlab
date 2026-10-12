@@ -6,6 +6,9 @@ from typing import Literal
 DEFAULT_AMP_DATASET = "whirlwind-ams/lafan_locomotion_k1"
 """Hugging Face motion dataset used by the AMP tasks unless overridden."""
 
+T1_AMP_DATASET = "whirlwind-ams/amass_booster_t1"
+"""AMASS (ACCAD + CMU) locomotion clips of booster-lab's velocity AMP set, retargeted to the Booster T1."""
+
 
 @dataclass
 class AmpDiscriminatorCfg:

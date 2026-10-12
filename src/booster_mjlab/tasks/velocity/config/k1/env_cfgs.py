@@ -105,6 +105,12 @@ def booster_k1_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     twist_cmd = cfg.commands["twist"]
     assert isinstance(twist_cmd, mdp.UniformVelocityCommandCfg)
     twist_cmd.rel_standing_envs = 0.2
+    twist_cmd.rel_turning_envs = 0.15
+    twist_cmd.rel_slow_envs = 0.15
+    # From 2 m/s the command is near-pure forward: only gentle curves and little sidestep.
+    twist_cmd.high_speed_lin_vel_x = 2.0
+    twist_cmd.high_speed_lin_vel_y = 0.5
+    twist_cmd.high_speed_ang_vel_z = 0.5
     twist_cmd.viz.z_offset = 1.15
 
     cfg.events["foot_friction"].params["asset_cfg"].geom_names = geom_names
@@ -171,7 +177,7 @@ def booster_k1_flat_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
         twist_cmd = commands["twist"]
         assert isinstance(twist_cmd, mdp.UniformVelocityCommandCfg)
 
-        twist_cmd.ranges.lin_vel_x = (-2.5, 2.5)
+        twist_cmd.ranges.lin_vel_x = (-2.5, 3.0)
         twist_cmd.ranges.lin_vel_y = (-2.0, 2.0)
         twist_cmd.ranges.ang_vel_z = (-3.7, 3.7)
 

@@ -1,0 +1,2 @@
+from .velocity_joystick import VelocityJoystick as VelocityJoystick
+from .velocity_joystick import VelocityJoystickCfg as VelocityJoystickCfg

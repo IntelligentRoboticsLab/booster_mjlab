@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any, Mapping, Protocol, Sequence, runtime_checkable
 
@@ -36,48 +37,49 @@ _K1_JOINT_NAMES = [
     "Right_Ankle_Roll",
 ]
 
+# T1 joint order (23 DOF total): the K1 layout plus a yaw-only waist.
+_T1_JOINT_NAMES = [
+    "AAHead_yaw",
+    "Head_pitch",
+    *_K1_JOINT_NAMES[2:10],
+    "Waist",
+    *_K1_JOINT_NAMES[10:],
+]
 
-def _k1_mirror_mapping() -> tuple[np.ndarray, np.ndarray]:
-    n_joints = len(_K1_JOINT_NAMES)
-    index_map = np.arange(n_joints)
-    sign_map = np.ones(n_joints, dtype=np.float32)
+# Joints whose axes change sign under a left/right mirror (roll and yaw axes).
+_INVERTED_JOINTS = {
+    "Head_Yaw",
+    "AAHead_yaw",
+    "Waist",
+    *(
+        f"{side}_{joint}"
+        for side in ("Left", "Right")
+        for joint in ("Shoulder_Roll", "Elbow_Yaw", "Hip_Roll", "Hip_Yaw", "Ankle_Roll")
+    ),
+}
 
-    name_to_idx = {name: i for i, name in enumerate(_K1_JOINT_NAMES)}
-    mirror_pairs = [
-        ("Head_Yaw", "Head_Yaw", True),
-        ("Left_Shoulder_Pitch", "Right_Shoulder_Pitch", False),
-        ("Left_Shoulder_Roll", "Right_Shoulder_Roll", True),
-        ("Left_Elbow_Pitch", "Right_Elbow_Pitch", False),
-        ("Left_Elbow_Yaw", "Right_Elbow_Yaw", True),
-        ("Left_Hip_Pitch", "Right_Hip_Pitch", False),
-        ("Left_Hip_Roll", "Right_Hip_Roll", True),
-        ("Left_Hip_Yaw", "Right_Hip_Yaw", True),
-        ("Left_Knee_Pitch", "Right_Knee_Pitch", False),
-        ("Left_Ankle_Pitch", "Right_Ankle_Pitch", False),
-        ("Left_Ankle_Roll", "Right_Ankle_Roll", True),
-    ]
 
-    for left_name, right_name, negate in mirror_pairs:
-        left_idx = name_to_idx[left_name]
-        right_idx = name_to_idx[right_name]
-
-        if left_idx != right_idx:
-            index_map[left_idx] = right_idx
-            index_map[right_idx] = left_idx
-
-        if negate:
-            sign_map[left_idx] = -1.0
-            sign_map[right_idx] = -1.0
-
+def _mirror_mapping(joint_names: Sequence[str]) -> tuple[np.ndarray, np.ndarray]:
+    """Index and sign maps that swap each Left_/Right_ joint pair."""
+    name_to_idx = {name: i for i, name in enumerate(joint_names)}
+    index_map = np.array(
+        [name_to_idx[_mirror_body_name(name)] for name in joint_names]
+    )
+    sign_map = np.array(
+        [-1.0 if name in _INVERTED_JOINTS else 1.0 for name in joint_names],
+        dtype=np.float32,
+    )
     return index_map, sign_map
 
 
-_K1_INDEX_MAP, _K1_SIGN_MAP = _k1_mirror_mapping()
 _MIRROR_MATRIX = np.diag([1.0, -1.0, 1.0])
 
 
 def _mirror_body_name(name: str) -> str:
     """Return the left/right counterpart of a body name (identity if central)."""
+    # T1 arm links are named AL1..AL3 / AR1..AR3.
+    if re.fullmatch(r"A[LR]\d+", name):
+        return name.translate(str.maketrans("LR", "RL"))
     for left, right in (("Left", "Right"), ("left", "right")):
         if left in name:
             return name.replace(left, right)
@@ -99,6 +101,12 @@ def _body_mirror_index_map(link_body_list: Sequence[Any]) -> np.ndarray:
     return index_map
 
 
+# Motion files carry no joint names, so the robot is identified by its DOF count.
+_MIRROR_MAPS = {
+    len(names): _mirror_mapping(names) for names in (_K1_JOINT_NAMES, _T1_JOINT_NAMES)
+}
+
+
 @runtime_checkable
 class MotionAugmentation(Protocol):
     name: str
@@ -115,13 +123,14 @@ class MirrorAugmentation:
 
     def apply(self, motion_file: MotionFile) -> MotionFile:
         num_dof = motion_file.dof_pos.shape[1]
-        if num_dof != len(_K1_INDEX_MAP):
+        if num_dof not in _MIRROR_MAPS:
             raise ValueError(
-                "Mirror augmentation currently expects K1 DOF ordering with "
-                f"{len(_K1_INDEX_MAP)} joints, but got {num_dof} joints."
+                "Mirror augmentation expects K1 or T1 DOF ordering with "
+                f"{sorted(_MIRROR_MAPS)} joints, but got {num_dof} joints."
             )
+        index_map, sign_map = _MIRROR_MAPS[num_dof]
 
-        flipped_dof_pos = motion_file.dof_pos[:, _K1_INDEX_MAP] * _K1_SIGN_MAP
+        flipped_dof_pos = motion_file.dof_pos[:, index_map] * sign_map
 
         flipped_root_pos = motion_file.root_pos.copy()
         flipped_root_pos[:, 1] = -flipped_root_pos[:, 1]

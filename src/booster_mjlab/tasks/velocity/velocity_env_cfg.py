@@ -22,6 +22,10 @@ from mjlab.sim import MujocoCfg, SimulationCfg
 from mjlab.tasks.velocity import mdp
 
 from booster_mjlab.mdp.terrain import randomize_terrain_contact
+from booster_mjlab.tasks.velocity.mdp.curriculums import (
+    commands_vel as booster_mjlab_commands_vel,
+    commands_vel_by_tracking,
+)
 from booster_mjlab.tasks.velocity.mdp.rewards import (
     standing_pose_deviation_l1,
     track_linear_velocity as booster_mjlab_track_linear_velocity,
@@ -167,13 +171,13 @@ def make_velocity_env_cfg() -> ManagerBasedRlEnvCfg:
     commands: dict[str, CommandTermCfg] = {
         "twist": UniformVelocityCommandCfg(
             entity_name="robot",
-            resampling_time_range=(1.0, 4.0),
+            resampling_time_range=(3.0, 8.0),
             rel_standing_envs=0.1,
             rel_heading_envs=0.3,
-            rel_forward_envs=0.1,
             heading_command=True,
             heading_control_stiffness=0.5,
             debug_vis=True,
+            motion_aligned_command_prob=0.3,
             ranges=UniformVelocityCommandCfg.Ranges(
                 lin_vel_x=(-0.5, 0.5),
                 lin_vel_y=(-0.5, 0.5),
@@ -358,7 +362,8 @@ def make_velocity_env_cfg() -> ManagerBasedRlEnvCfg:
                 "threshold_min": 0.05,
                 "threshold_max": 0.5,
                 "command_name": "twist",
-                "command_threshold": 0.2,
+                # Low enough that slow walking commands (from 0.1 m/s) are still rewarded for stepping.
+                "command_threshold": 0.05,
             },
         ),
         "foot_clearance": RewardTermCfg(
@@ -479,7 +484,7 @@ def make_velocity_env_cfg() -> ManagerBasedRlEnvCfg:
             },
         ),
         "command_vel": CurriculumTermCfg(
-            func=mdp.commands_vel,
+            func=booster_mjlab_commands_vel,
             params={
                 "command_name": "twist",
                 "velocity_stages": [
@@ -506,6 +511,34 @@ def make_velocity_env_cfg() -> ManagerBasedRlEnvCfg:
                         "lin_vel_x": (-1.5, 1.75),
                         "lin_vel_y": (-1.75, 1.75),
                         "ang_vel_z": (-1.5, 1.5),
+                    },
+                    {
+                        "step": 20000 * 24,
+                        "lin_vel_x": (-1.5, 2.00),
+                        "lin_vel_y": (-1.75, 1.75),
+                        "ang_vel_z": (-1.5, 1.5),
+                    },
+                    {
+                        "step": 25000 * 24,
+                        "lin_vel_x": (-1.5, 2.50),
+                        "lin_vel_y": (-1.75, 1.75),
+                        "ang_vel_z": (-1.5, 1.5),
+                    },
+                    # Continuation past 30k iterations: faster running and faster turning in place. Robots set
+                    # high_speed_lin_vel_x to keep vy and yaw small at the new speeds.
+                    {
+                        "step": 30000 * 24,
+                        "lin_vel_x": (-1.5, 2.75),
+                        "lin_vel_y": (-1.75, 1.75),
+                        "ang_vel_z": (-1.5, 1.5),
+                        "turning_ang_vel_z": (-2.0, 2.0),
+                    },
+                    {
+                        "step": 33000 * 24,
+                        "lin_vel_x": (-1.5, 3.0),
+                        "lin_vel_y": (-1.75, 1.75),
+                        "ang_vel_z": (-1.5, 1.5),
+                        "turning_ang_vel_z": (-2.5, 2.5),
                     },
                 ],
             },
@@ -561,3 +594,27 @@ def make_velocity_env_cfg() -> ManagerBasedRlEnvCfg:
         decimation=4,
         episode_length_s=20.0,
     )
+
+
+def use_tracking_velocity_curriculum(
+    cfg: ManagerBasedRlEnvCfg,
+    threshold: float,
+    min_stage_steps: int = 500 * 24,
+    max_stage_steps: int = 5000 * 24,
+) -> ManagerBasedRlEnvCfg:
+    """Advance the command_vel stages on linear-velocity tracking instead of at fixed steps.
+
+    ``threshold`` is a fraction of the most ``track_linear_velocity`` can earn in a full episode, i.e. its logged
+    ``Episode_Reward`` divided by its weight; set it a little below the robot's first-stage plateau. Each stage gets at
+    least 500 iterations for the discriminators to follow and at most the 5k of the fixed schedule.
+    """
+    assert cfg.curriculum is not None
+    term = cfg.curriculum["command_vel"]
+    term.func = commands_vel_by_tracking
+    term.params.update(
+        reward_name="track_linear_velocity",
+        threshold=threshold,
+        min_stage_steps=min_stage_steps,
+        max_stage_steps=max_stage_steps,
+    )
+    return cfg
