@@ -64,7 +64,24 @@ uv run play Mjlab-Tracking-Flat-Booster-K1 --wandb-run-path your-org/mjlab/run-i
 
 For a motion prepared with `csv_to_npz`, pass `--registry-name your-org/motions/motion_name` instead.
 
-### 3. Browse Motion Data
+### 3. Standing with Torso and Head Commands
+
+A standing policy in the style of Disney's BDX ("perpetual standing"): the operator commands the torso's
+height, roll, pitch and yaw and the head's yaw and pitch, and the K1 follows while both feet stay planted
+-- crouch 13.5 cm / rise 3 cm, roll ±17°, lean 54° forward / 48° back, twist ±41°, head over its joint range.
+The reference pose for every command comes from a precomputed IK library (`tasks/standing/stand_library.py`);
+torso combinations the legs can't reach with the feet planted are scaled back toward neutral. Commands are
+trained at random speeds, from slow to snappy, so a joystick or a scripted motion can drive it either way.
+
+```bash
+uv run train Mjlab-Standing-Flat-Booster-K1 --env.scene.num-envs 4096
+uv run play Mjlab-Standing-Flat-Booster-K1 --wandb-run-path your-org/mjlab/run-id
+```
+
+Rebuild the reference library after changing the robot model or the ranges:
+`uv run python -m booster_mjlab.tasks.standing.stand_library`.
+
+### 4. Browse Motion Data
 
 Inspect, play back and edit motion clips in the browser before training on them:
 
