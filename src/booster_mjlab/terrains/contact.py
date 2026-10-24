@@ -12,7 +12,7 @@ def terrain_collisions() -> tuple[CollisionCfg, ...]:
             conaffinity=1,
             condim=3,
             priority=0,
-            friction=(0.0, 0.0, 0.0),
+            friction=(0.01, 0.01, 0.01),
             solmix=1.0,
         ),
     )
