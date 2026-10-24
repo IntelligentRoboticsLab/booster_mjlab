@@ -4,7 +4,7 @@ from mjlab.utils.spec_config import CollisionCfg
 
 
 def terrain_collisions() -> tuple[CollisionCfg, ...]:
-    """Zero friction preserves robot coefficients; solmix=1 weights terrain compliance."""
+    """Near-zero friction preserves robot coefficients; solmix=1 weights terrain compliance."""
     return (
         CollisionCfg(
             geom_names_expr=(".*",),
