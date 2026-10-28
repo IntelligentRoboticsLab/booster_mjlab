@@ -13,6 +13,10 @@ from mjlab.rl.exporter_utils import (
 from mjlab.rl.exporter_utils import (
     get_base_metadata as _mjlab_get_base_metadata,
 )
+from mjlab.rl.exporter_utils import list_to_csv_str
+
+# mjlab writes 3 decimals, which rounds gains and action scales the deployment reads back.
+METADATA_DECIMALS = 8
 
 __all__ = (
     "attach_base_metadata",
@@ -32,7 +36,15 @@ def attach_metadata_to_onnx(
         if model.metadata_props[index].key in replaced_keys:
             del model.metadata_props[index]
     onnx.save(model, onnx_path)
-    _mjlab_attach_metadata_to_onnx(onnx_path, metadata)
+    _mjlab_attach_metadata_to_onnx(
+        onnx_path,
+        {
+            key: list_to_csv_str(value, decimals=METADATA_DECIMALS)
+            if isinstance(value, list)
+            else value
+            for key, value in metadata.items()
+        },
+    )
 
 
 def attach_base_metadata(env: ManagerBasedRlEnv, onnx_path: str) -> None:
