@@ -17,13 +17,18 @@ class AmpDiscriminatorCfg:
     """The hidden layer sizes of the discriminator network."""
     reward_scale: float = 1.0
     """The scale of the reward output by the discriminator."""
-    reward_clamp_epsilon: float = 1.0e-4
-    """The epsilon value for reward clamping."""
     loss_type: Literal["hinge", "bce", "wasserstein"] = "wasserstein"
     """The type of loss function to use."""
-    loss_fn_kwargs: dict = field(default_factory=lambda: {"eta": 1.0})
-    """Additional kwargs for the configured discriminator loss."""
-    use_minibatch_std: bool = True
-    """Whether to use minibatch standard deviation in the discriminator."""
+    loss_fn_kwargs: dict = field(default_factory=dict)
+    """Additional kwargs for the configured discriminator loss (``drift_coef`` for wasserstein)."""
+    optimizer: str = "adam"
+    """Discriminator optimizer (rsl_rl name or ``torch.optim`` class name). Its lr is
+    fixed; it does not follow PPO's adaptive-KL schedule."""
+    optimizer_kwargs: dict = field(default_factory=lambda: {"lr": 1.0e-4})
+    """Constructor kwargs for that optimizer, including ``lr``."""
+    trunk_weight_decay: float = 1.0e-3
+    """L2 weight decay on the discriminator trunk."""
+    head_weight_decay: float = 1.0e-1
+    """L2 weight decay on the discriminator output layer."""
     empirical_normalization: bool = True
     """Whether to enable empirical normalization of AMP observations."""

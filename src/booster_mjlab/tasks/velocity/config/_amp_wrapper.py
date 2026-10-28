@@ -3,18 +3,15 @@ from mjlab.managers import (
     ObservationGroupCfg,
     ObservationTermCfg,
 )
-from mjlab.managers.curriculum_manager import CurriculumTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.tasks.velocity import mdp
 
 from booster_mjlab.amp.config import DEFAULT_AMP_DATASET
-from booster_mjlab.amp.curriculums import anneal_style_reward
 from booster_mjlab.mdp.events import reset_from_pose_pool
 
 
 def with_amp_obs_group(
     cfg,
-    fast_sac: bool = False,
     dataset_root: str = DEFAULT_AMP_DATASET,
     speed_factor: float = 1.0,
     dataset_weights: list[float] | None = None,
@@ -23,18 +20,6 @@ def with_amp_obs_group(
     include_base_lin_vel: bool = False,
 ):
     """Wraps the environment configuration for AMP tasks."""
-    if cfg.curriculum is None:
-        cfg.curriculum = {}
-    cfg.curriculum["amp_style_weight"] = CurriculumTermCfg(
-        func=anneal_style_reward,
-        params={
-            "start_weight": 0.3,
-            "end_weight": 0.3,
-            "start_step": 0,
-            "end_step": 3000 * 24 if not fast_sac else 10000,
-        },
-    )
-
     # Discriminator features cover the legs only; the arms and head are excluded
     # so their style from the dataset does not drive the style reward.
     amp_joint_names = (

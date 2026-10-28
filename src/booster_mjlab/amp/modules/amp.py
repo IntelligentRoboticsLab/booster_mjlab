@@ -163,9 +163,12 @@ class AMP:
         amp_replay_buffer_size: int = 200_000,
         amp_replay_insert_size: int = 1_000,
         device: torch.device | str = "cpu",
+        optimizer: torch.optim.Optimizer | None = None,
     ) -> None:
         self.device = torch.device(device)
         self.discriminator = discriminator
+        # Set by construct_amp; None when AMP is built by hand.
+        self.optimizer = optimizer
         self.amp_loader = amp_loader
         self.amp_obs_dim = amp_obs_dim
         self.num_amp_obs_steps = num_amp_obs_steps
@@ -180,6 +183,8 @@ class AMP:
             )
         self.amp_replay_insert_size = amp_replay_insert_size
         self._current_policy_batches: list[torch.Tensor] = []
+        # Latest rollout, kept through the discriminator update for the reward stats.
+        self._reward_stat_samples: torch.Tensor | None = None
         self._history: torch.Tensor | None = None
         self._history_head = 0
 
@@ -286,6 +291,7 @@ class AMP:
     ]:
         current = self._consume_current_policy_samples()
         self._refresh_replay(current)
+        self._reward_stat_samples = current
 
         # MimicKit uses a full current batch and a full replay batch as policy
         # negatives, against one equally sized expert batch.
@@ -312,6 +318,22 @@ class AMP:
             mini_batch_size=mini_batch_size,
         )
         return policy_generator(), expert_generator
+
+    def update_reward_normalization(self) -> dict[str, float]:
+        """Refresh the reward statistics after a discriminator update.
+
+        Scores the rollout consumed by the last :meth:`generators` call with the
+        updated discriminator, so the next rollout's rewards use statistics from the
+        same critic. Returns the statistics for logging (empty for BCE/hinge).
+        """
+        samples, self._reward_stat_samples = self._reward_stat_samples, None
+        if samples is None or self.discriminator.loss_type != "wasserstein":
+            return {}
+        self.discriminator.update_reward_normalization(samples)
+        return {
+            "reward_score_mean": self.discriminator.reward_score_mean.item(),
+            "reward_score_std": self.discriminator.reward_score_std.item(),
+        }
 
     def compute_discriminator_batch(
         self,
@@ -344,27 +366,30 @@ class AMP:
             policy_raw_copy,
         )
 
-        if hasattr(self.discriminator.loss_fn, "eta"):
-            eta = self.discriminator.loss_fn.eta
-            policy_prob = torch.tanh(eta * policy_d)
-            expert_prob = torch.tanh(eta * expert_d)
-            policy_target = -torch.ones_like(policy_prob)
-            expert_target = torch.ones_like(expert_prob)
+        policy_d = policy_d.detach()
+        expert_d = expert_d.detach()
+        loss_type = self.discriminator.loss_type
+        if loss_type == "wasserstein":
+            # Raw scores; the drift term centers the expert/policy midpoint at zero,
+            # so the sign decides correctness.
+            policy_prob = policy_d
+            expert_prob = expert_d
+            policy_correct = policy_d < 0.0
+            expert_correct = expert_d > 0.0
         else:
             policy_prob = torch.sigmoid(policy_d)
             expert_prob = torch.sigmoid(expert_d)
-            policy_target = torch.zeros_like(policy_prob)
-            expert_target = torch.ones_like(expert_prob)
+            policy_correct = policy_prob < 0.5
+            expert_correct = expert_prob > 0.5
+        # Expert-policy gap of the raw score (the W1 estimate for the Wasserstein critic).
+        score_gap = expert_d.mean() - policy_d.mean()
 
         metrics = {
-            "policy_pred": policy_prob.detach().mean(),
-            "expert_pred": expert_prob.detach().mean(),
-            "accuracy_policy_num": torch.sum(
-                torch.round(policy_prob.detach()) == policy_target
-            ).detach(),
-            "accuracy_expert_num": torch.sum(
-                torch.round(expert_prob.detach()) == expert_target
-            ).detach(),
+            "policy_pred": policy_prob.mean(),
+            "expert_pred": expert_prob.mean(),
+            "score_gap": score_gap.detach(),
+            "accuracy_policy_num": policy_correct.sum(),
+            "accuracy_expert_num": expert_correct.sum(),
             "accuracy_policy_den": torch.tensor(
                 float(policy_prob.numel()), device=policy_prob.device
             ),
@@ -400,18 +425,22 @@ def construct_amp(
         )
     amp_history_dim = amp_obs_dim * num_amp_obs_steps
     discriminator_cfg = cfg["discriminator"]
-    loss_fn_kwargs = discriminator_cfg.get("loss_fn_kwargs", {})
 
     discriminator = Discriminator(
         input_dim=amp_history_dim,
         hidden_layer_sizes=list(discriminator_cfg["hidden_layer_sizes"]),
         reward_scale=float(discriminator_cfg["reward_scale"]),
-        reward_clamp_epsilon=float(discriminator_cfg["reward_clamp_epsilon"]),
         loss_type=discriminator_cfg["loss_type"],
-        eta_wgan=loss_fn_kwargs.get("eta", 1.0),
-        use_minibatch_std=discriminator_cfg.get("use_minibatch_std", True),
+        loss_fn_kwargs=dict(discriminator_cfg.get("loss_fn_kwargs") or {}),
         empirical_normalization=discriminator_cfg["empirical_normalization"],
         device=device,
+    )
+
+    discriminator_optimizer = discriminator.make_optimizer(
+        optimizer=discriminator_cfg.get("optimizer", "adam"),
+        optimizer_kwargs=discriminator_cfg.get("optimizer_kwargs"),
+        trunk_weight_decay=float(discriminator_cfg.get("trunk_weight_decay", 1.0e-3)),
+        head_weight_decay=float(discriminator_cfg.get("head_weight_decay", 1.0e-1)),
     )
 
     base_dt = env.cfg.sim.mujoco.timestep
@@ -447,5 +476,6 @@ def construct_amp(
         amp_replay_buffer_size=int(cfg["amp_replay_buffer_size"]),
         amp_replay_insert_size=int(cfg.get("amp_replay_insert_size", 1_000)),
         device=device,
+        optimizer=discriminator_optimizer,
     )
     return amp_runner, amp_obs_dim

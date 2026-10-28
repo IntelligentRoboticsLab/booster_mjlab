@@ -33,6 +33,7 @@ class AmpPPO(PPO):
         storage: RolloutStorage,
         amp: AMP,
         use_smooth_ratio_clipping: bool = False,
+        amp_grad_penalty_lambda: float = 10.0,
         optimizer: str = "adam",
         optimizer_kwargs: dict | None = None,
         device: Union[str, torch.device] = "cpu",
@@ -49,32 +50,27 @@ class AmpPPO(PPO):
         )
         self.amp = amp
         self.use_smooth_ratio_clipping = use_smooth_ratio_clipping
+        self.amp_grad_penalty_lambda = amp_grad_penalty_lambda
 
-        # Rebuild optimizer to include discriminator parameters alongside actor+critic
         self.optimizer = build_optimizer(
             [
                 {
                     "params": [*self.actor.parameters(), *self.critic.parameters()],
                     "name": "actor_critic",
                     "lr_scale": 1.0,
-                },
-                {
-                    "params": self.amp.discriminator.trunk.parameters(),
-                    "weight_decay": 1.0e-3,
-                    "name": "amp_trunk",
-                    "lr_scale": 1.0,
-                },
-                {
-                    "params": self.amp.discriminator.linear.parameters(),
-                    "weight_decay": 1.0e-1,
-                    "name": "amp_head",
-                    "lr_scale": 1.0,
-                },
+                }
             ],
             optimizer=optimizer,
             optimizer_kwargs=optimizer_kwargs,
             lr=self.learning_rate,
         )
+        # The discriminator optimizer (built in construct_amp) has a fixed lr, outside
+        # PPO's adaptive-KL schedule.
+        if amp.optimizer is None:
+            raise ValueError(
+                "AmpPPO requires an AMP instance with a discriminator optimizer."
+            )
+        self.discriminator_optimizer = amp.optimizer
 
     def act_amp(self, amp_obs: torch.Tensor) -> None:
         """Initialize AMP history if collection has not started yet."""
@@ -122,6 +118,7 @@ class AmpPPO(PPO):
         mean_accuracy_expert = torch.zeros(1, device=self.device)
         mean_accuracy_policy_elem = 0.0
         mean_accuracy_expert_elem = 0.0
+        mean_score_gap = torch.zeros(1, device=self.device)
         mean_kl_divergence = torch.zeros(1, device=self.device)
         mean_rnd_loss = torch.zeros(1, device=self.device) if self.rnd else None
         mean_symmetry_loss = (
@@ -261,12 +258,13 @@ class AmpPPO(PPO):
             amp_loss, grad_pen_loss, amp_metrics = self.amp.compute_discriminator_batch(
                 sample_amp_policy,
                 sample_amp_expert,
-                grad_penalty_lambda=10.0,
+                grad_penalty_lambda=self.amp_grad_penalty_lambda,
             )
 
             total_loss = loss + amp_loss + grad_pen_loss
 
             self.optimizer.zero_grad()
+            self.discriminator_optimizer.zero_grad()
             total_loss.backward()
             if self.rnd:
                 self.rnd.optimizer.zero_grad()
@@ -276,6 +274,7 @@ class AmpPPO(PPO):
             nn.utils.clip_grad_norm_(self.actor.parameters(), self.max_grad_norm)
             nn.utils.clip_grad_norm_(self.critic.parameters(), self.max_grad_norm)
             self.optimizer.step()
+            self.discriminator_optimizer.step()
             if self.rnd:
                 self.rnd.optimizer.step()
 
@@ -300,12 +299,15 @@ class AmpPPO(PPO):
             mean_expert_pred += amp_metrics["expert_pred"]
             mean_accuracy_policy += amp_metrics["accuracy_policy_num"]
             mean_accuracy_expert += amp_metrics["accuracy_expert_num"]
+            mean_score_gap += amp_metrics["score_gap"]
             mean_accuracy_policy_elem += float(
                 amp_metrics["accuracy_policy_den"].item()
             )
             mean_accuracy_expert_elem += float(
                 amp_metrics["accuracy_expert_den"].item()
             )
+
+        reward_stats = self.amp.update_reward_normalization()
 
         # Finalize metrics (single GPU sync point)
         mean_value_loss = (mean_value_loss / num_updates).item()
@@ -321,6 +323,7 @@ class AmpPPO(PPO):
         mean_accuracy_expert = (
             mean_accuracy_expert / max(1.0, mean_accuracy_expert_elem)
         ).item()
+        mean_score_gap = (mean_score_gap / num_updates).item()
         mean_kl_divergence = (mean_kl_divergence / num_updates).item()
         if mean_rnd_loss is not None:
             mean_rnd_loss = (mean_rnd_loss / num_updates).item()
@@ -356,6 +359,8 @@ class AmpPPO(PPO):
                 "expert_pred": mean_expert_pred,
                 "accuracy_policy": mean_accuracy_policy,
                 "accuracy_expert": mean_accuracy_expert,
+                "score_gap": mean_score_gap,
+                **reward_stats,
             },
         }
 
@@ -366,6 +371,7 @@ class AmpPPO(PPO):
             "critic_state_dict": self.critic.state_dict(),
             "optimizer_state_dict": self.optimizer.state_dict(),
             "discriminator_state_dict": self.amp.discriminator.state_dict(),
+            "discriminator_optimizer_state_dict": self.discriminator_optimizer.state_dict(),
         }
         if self.rnd:
             saved_dict["rnd_state_dict"] = self.rnd.state_dict()
@@ -377,6 +383,12 @@ class AmpPPO(PPO):
         if "discriminator_state_dict" in loaded_dict:
             self.amp.discriminator.load_state_dict(
                 loaded_dict["discriminator_state_dict"], strict=strict
+            )
+
+        load_optimizer = load_cfg is None or bool(load_cfg.get("optimizer"))
+        if load_optimizer and "discriminator_optimizer_state_dict" in loaded_dict:
+            self.discriminator_optimizer.load_state_dict(
+                loaded_dict["discriminator_optimizer_state_dict"]
             )
 
         return super().load(loaded_dict, load_cfg, strict)
