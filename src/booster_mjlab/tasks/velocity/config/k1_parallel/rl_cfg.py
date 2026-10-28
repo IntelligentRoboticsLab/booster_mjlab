@@ -30,10 +30,10 @@ def _use_parallel_symmetry(
 
 
 def booster_k1_parallel_ppo_runner_cfg(
-    use_muon: bool = False,
+    optimizer: str = "adam",
 ) -> RslRlOnPolicyRunnerCfg:
     """Create the base parallel-ankle PPO runner configuration."""
-    cfg = booster_k1_ppo_runner_cfg(use_muon=use_muon)
+    cfg = booster_k1_ppo_runner_cfg(optimizer=optimizer)
     _use_parallel_symmetry(cfg, use_data_augmentation=False)
     cfg.experiment_name = cfg.experiment_name.replace(
         "k1_velocity", "k1_parallel_velocity"
@@ -42,10 +42,10 @@ def booster_k1_parallel_ppo_runner_cfg(
 
 
 def booster_k1_parallel_symmetric_ppo_runner_cfg(
-    use_muon: bool = False,
+    optimizer: str = "adam",
 ) -> RslRlOnPolicyRunnerCfg:
     """Create the parallel-ankle PPO config with symmetry augmentation."""
-    cfg = booster_k1_parallel_ppo_runner_cfg(use_muon=use_muon)
+    cfg = booster_k1_parallel_ppo_runner_cfg(optimizer=optimizer)
     _use_parallel_symmetry(cfg, use_data_augmentation=True)
     cfg.experiment_name = cfg.experiment_name.replace(
         "k1_parallel_velocity", "k1_parallel_velocity_symmetric"
@@ -54,10 +54,10 @@ def booster_k1_parallel_symmetric_ppo_runner_cfg(
 
 
 def booster_k1_parallel_amp_ppo_runner_cfg(
-    use_muon: bool = False,
+    optimizer: str = "adam",
 ) -> AmpOnPolicyRunnerCfg:
     """Create the AMP runner using motion retargeted to the parallel linkage."""
-    cfg = booster_k1_amp_ppo_runner_cfg(use_muon=use_muon)
+    cfg = booster_k1_amp_ppo_runner_cfg(optimizer=optimizer)
     # The serial dataset is retargeted onto the linkage at load time, after
     # augmentations (so mirroring still sees the serial layout); clips that
     # already carry the parallel layout pass through untouched.
@@ -69,10 +69,10 @@ def booster_k1_parallel_amp_ppo_runner_cfg(
 
 
 def booster_k1_parallel_amp_ppo_symmetric_runner_cfg(
-    use_muon: bool = False,
+    optimizer: str = "adam",
 ) -> AmpOnPolicyRunnerCfg:
     """Create parallel AMP PPO with policy symmetry augmentation."""
-    cfg = booster_k1_parallel_amp_ppo_runner_cfg(use_muon=use_muon)
+    cfg = booster_k1_parallel_amp_ppo_runner_cfg(optimizer=optimizer)
     cfg.algorithm.symmetry_cfg = RslRlSymmetryCfg(
         use_data_augmentation=True,
         use_mirror_loss=False,

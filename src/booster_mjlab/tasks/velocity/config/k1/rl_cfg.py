@@ -2,7 +2,6 @@
 
 from mjlab.rl import RslRlModelCfg
 from booster_mjlab.rl.config import (
-    RslRlMuonPpoAlgorithmCfg,
     RslRlPpoAlgorithmCfg,
     RslRlOnPolicyRunnerCfg,
     RslRlSymmetryCfg,
@@ -10,17 +9,20 @@ from booster_mjlab.rl.config import (
 from booster_mjlab.amp.runners import (
     AmpOnPolicyRunnerCfg,
     AmpDiscriminatorCfg,
-    AmpRslRlMuonPpoAlgorithmCfg,
     AmpRslRlPpoAlgorithmCfg,
 )
 
 
-def booster_k1_ppo_runner_cfg(use_muon: bool = False) -> RslRlOnPolicyRunnerCfg:
+def _experiment_suffix(optimizer: str) -> str:
+    return "" if optimizer == "adam" else f"_{optimizer}"
+
+
+def booster_k1_ppo_runner_cfg(optimizer: str = "adam") -> RslRlOnPolicyRunnerCfg:
     """Create RL runner configuration for Booster K1 velocity task.
 
-    With ``use_muon`` the actor/critic matrices are optimized with Muon instead of Adam.
+    ``optimizer`` selects the actor/critic optimizer (e.g. ``"muon"``); non-Adam
+    optimizers are appended to the experiment name.
     """
-    algorithm_cls = RslRlMuonPpoAlgorithmCfg if use_muon else RslRlPpoAlgorithmCfg
     return RslRlOnPolicyRunnerCfg(
         actor=RslRlModelCfg(
             hidden_dims=(512, 256, 128),
@@ -36,7 +38,8 @@ def booster_k1_ppo_runner_cfg(use_muon: bool = False) -> RslRlOnPolicyRunnerCfg:
             activation="elu",
             obs_normalization=True,
         ),
-        algorithm=algorithm_cls(
+        algorithm=RslRlPpoAlgorithmCfg(
+            optimizer=optimizer,
             value_loss_coef=1.0,
             use_clipped_value_loss=True,
             clip_param=0.2,
@@ -56,7 +59,7 @@ def booster_k1_ppo_runner_cfg(use_muon: bool = False) -> RslRlOnPolicyRunnerCfg:
                 data_augmentation_func="booster_mjlab.tasks.velocity.mdp.observations:augment_symmetries",
             ),
         ),
-        experiment_name="k1_velocity" + ("_muon" if use_muon else ""),
+        experiment_name="k1_velocity" + _experiment_suffix(optimizer),
         save_interval=50,
         num_steps_per_env=24,
         max_iterations=30_000,
@@ -64,10 +67,10 @@ def booster_k1_ppo_runner_cfg(use_muon: bool = False) -> RslRlOnPolicyRunnerCfg:
 
 
 def booster_k1_symmetric_ppo_runner_cfg(
-    use_muon: bool = False,
+    optimizer: str = "adam",
 ) -> RslRlOnPolicyRunnerCfg:
     """PPO runner configuration with symmetry data augmentation."""
-    cfg = booster_k1_ppo_runner_cfg(use_muon=use_muon)
+    cfg = booster_k1_ppo_runner_cfg(optimizer=optimizer)
     cfg.algorithm.symmetry_cfg.use_data_augmentation = True
     cfg.experiment_name = cfg.experiment_name.replace(
         "k1_velocity", "k1_velocity_symmetric"
@@ -75,13 +78,12 @@ def booster_k1_symmetric_ppo_runner_cfg(
     return cfg
 
 
-def booster_k1_amp_ppo_runner_cfg(use_muon: bool = False) -> AmpOnPolicyRunnerCfg:
+def booster_k1_amp_ppo_runner_cfg(optimizer: str = "adam") -> AmpOnPolicyRunnerCfg:
     """Create AMP runner configuration for Booster K1 velocity task.
 
-    With ``use_muon`` the actor/critic matrices are optimized with Muon; the
-    discriminator stays on Adam.
+    ``optimizer`` selects the actor/critic optimizer (e.g. ``"muon"``); the
+    discriminator keeps its own optimizer.
     """
-    algorithm_cls = AmpRslRlMuonPpoAlgorithmCfg if use_muon else AmpRslRlPpoAlgorithmCfg
     return AmpOnPolicyRunnerCfg(
         actor=RslRlModelCfg(
             hidden_dims=(512, 256, 128),
@@ -104,7 +106,8 @@ def booster_k1_amp_ppo_runner_cfg(use_muon: bool = False) -> AmpOnPolicyRunnerCf
             loss_type="bce",
             loss_fn_kwargs={},
         ),
-        algorithm=algorithm_cls(
+        algorithm=AmpRslRlPpoAlgorithmCfg(
+            optimizer=optimizer,
             value_loss_coef=1.0,
             use_clipped_value_loss=True,
             clip_param=0.2,
@@ -118,7 +121,7 @@ def booster_k1_amp_ppo_runner_cfg(use_muon: bool = False) -> AmpOnPolicyRunnerCf
             desired_kl=0.01,
             max_grad_norm=1.0,
         ),
-        experiment_name="k1_velocity_amp" + ("_muon" if use_muon else ""),
+        experiment_name="k1_velocity_amp" + _experiment_suffix(optimizer),
         save_interval=50,
         num_steps_per_env=24,
         max_iterations=30_000,
@@ -135,10 +138,10 @@ def booster_k1_amp_ppo_runner_cfg(use_muon: bool = False) -> AmpOnPolicyRunnerCf
 
 
 def booster_k1_amp_ppo_symmetric_runner_cfg(
-    use_muon: bool = False,
+    optimizer: str = "adam",
 ) -> AmpOnPolicyRunnerCfg:
     """AMP runner configuration with symmetry data augmentation."""
-    cfg = booster_k1_amp_ppo_runner_cfg(use_muon=use_muon)
+    cfg = booster_k1_amp_ppo_runner_cfg(optimizer=optimizer)
     cfg.algorithm.symmetry_cfg = RslRlSymmetryCfg(
         use_data_augmentation=True,
         use_mirror_loss=False,

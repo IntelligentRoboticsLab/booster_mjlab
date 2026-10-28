@@ -3,7 +3,6 @@ from .amp_on_policy_runner import (
     AmpDiscriminatorCfg,
     AmpOnPolicyRunnerCfg,
     AmpRslRlPpoAlgorithmCfg,
-    AmpRslRlMuonPpoAlgorithmCfg,
 )
 
 
@@ -12,5 +11,4 @@ __all__ = [
     "AmpDiscriminatorCfg",
     "AmpOnPolicyRunnerCfg",
     "AmpRslRlPpoAlgorithmCfg",
-    "AmpRslRlMuonPpoAlgorithmCfg",
 ]

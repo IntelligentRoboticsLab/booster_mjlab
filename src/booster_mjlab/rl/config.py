@@ -55,16 +55,13 @@ class RslRlSymmetryCfg:
 class RslRlPpoAlgorithmCfg(MjlabRslRlPpoAlgorithmCfg):
     symmetry_cfg: RslRlSymmetryCfg | None = None
     """The symmetry configuration."""
-
-
-@dataclass
-class RslRlMuonPpoAlgorithmCfg(RslRlPpoAlgorithmCfg):
-    """PPO with the same hybrid Muon/Adam updates as velocity AMP."""
-
-    class_name: str = "booster_mjlab.rl.muon:MuonPPO"
-    muon_weight_decay: float = 0.0
-    muon_momentum: float = 0.95
-    muon_ns_steps: int = 5
+    class_name: str = "booster_mjlab.rl.ppo:BoosterPPO"
+    optimizer: str = "adam"  # type: ignore[assignment]
+    """Actor/critic optimizer: an rsl_rl name (``adam``, ``adamw``, ``sgd``, ``rmsprop``),
+    any ``torch.optim`` class name, or ``muon`` for hybrid Muon/Adam updates."""
+    optimizer_kwargs: dict = field(default_factory=dict)
+    """Constructor kwargs for the optimizer. For ``muon``: ``weight_decay`` (0.0),
+    ``momentum`` (0.95) and ``ns_steps`` (5)."""
 
 
 @dataclass

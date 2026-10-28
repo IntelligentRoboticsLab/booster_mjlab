@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from itertools import chain
 from typing import Union
 
 import torch
@@ -18,7 +17,7 @@ from booster_mjlab.amp.modules.amp import (
     AMP,
     construct_amp,
 )
-from booster_mjlab.rl.muon import HybridMuonOptimizer
+from booster_mjlab.rl.optim import build_optimizer
 
 
 class AmpPPO(PPO):
@@ -34,78 +33,48 @@ class AmpPPO(PPO):
         storage: RolloutStorage,
         amp: AMP,
         use_smooth_ratio_clipping: bool = False,
-        use_muon: bool = False,
-        muon_weight_decay: float = 0.0,
-        muon_momentum: float = 0.95,
-        muon_ns_steps: int = 5,
+        optimizer: str = "adam",
+        optimizer_kwargs: dict | None = None,
         device: Union[str, torch.device] = "cpu",
         **kwargs,
     ):
+        # The base class builds a plain Adam over actor+critic; replaced below.
         super().__init__(
-            actor=actor, critic=critic, storage=storage, device=device, **kwargs
+            actor=actor,
+            critic=critic,
+            storage=storage,
+            device=device,
+            optimizer="adam",
+            **kwargs,
         )
         self.amp = amp
         self.use_smooth_ratio_clipping = use_smooth_ratio_clipping
 
         # Rebuild optimizer to include discriminator parameters alongside actor+critic
-        params = [
-            {
-                "params": chain(self.actor.parameters(), self.critic.parameters()),
-                "name": "actor_critic",
-                "lr_scale": 1.0,
-            },
-            {
-                "params": self.amp.discriminator.trunk.parameters(),
-                "weight_decay": 1.0e-3,
-                "name": "amp_trunk",
-                "lr_scale": 1.0,
-            },
-            {
-                "params": self.amp.discriminator.linear.parameters(),
-                "weight_decay": 1.0e-1,
-                "name": "amp_head",
-                "lr_scale": 1.0,
-            },
-        ]
-        self.optimizer = torch.optim.Adam(params, lr=self.learning_rate)
-
-        if use_muon:
-            matrix_params: list[nn.Parameter] = []
-            actor_critic_other_params: list[nn.Parameter] = []
-            for module in (self.actor, self.critic):
-                for parameter in module.parameters():
-                    if parameter.ndim == 2:
-                        matrix_params.append(parameter)
-                    else:
-                        actor_critic_other_params.append(parameter)
-
-            self.optimizer = HybridMuonOptimizer(
-                matrix_params,
-                [
-                    {
-                        "params": actor_critic_other_params,
-                        "name": "actor_critic_adam",
-                        "lr_scale": 1.0,
-                        "weight_decay": 0.0,
-                    },
-                    {
-                        "params": self.amp.discriminator.trunk.parameters(),
-                        "name": "amp_trunk",
-                        "lr_scale": 1.0,
-                        "weight_decay": 1.0e-3,
-                    },
-                    {
-                        "params": self.amp.discriminator.linear.parameters(),
-                        "name": "amp_head",
-                        "lr_scale": 1.0,
-                        "weight_decay": 1.0e-1,
-                    },
-                ],
-                lr=self.learning_rate,
-                muon_weight_decay=muon_weight_decay,
-                muon_momentum=muon_momentum,
-                muon_ns_steps=muon_ns_steps,
-            )
+        self.optimizer = build_optimizer(
+            [
+                {
+                    "params": [*self.actor.parameters(), *self.critic.parameters()],
+                    "name": "actor_critic",
+                    "lr_scale": 1.0,
+                },
+                {
+                    "params": self.amp.discriminator.trunk.parameters(),
+                    "weight_decay": 1.0e-3,
+                    "name": "amp_trunk",
+                    "lr_scale": 1.0,
+                },
+                {
+                    "params": self.amp.discriminator.linear.parameters(),
+                    "weight_decay": 1.0e-1,
+                    "name": "amp_head",
+                    "lr_scale": 1.0,
+                },
+            ],
+            optimizer=optimizer,
+            optimizer_kwargs=optimizer_kwargs,
+            lr=self.learning_rate,
+        )
 
     def act_amp(self, amp_obs: torch.Tensor) -> None:
         """Initialize AMP history if collection has not started yet."""

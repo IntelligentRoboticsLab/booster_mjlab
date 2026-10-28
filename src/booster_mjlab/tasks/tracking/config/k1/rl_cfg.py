@@ -3,7 +3,7 @@
 from mjlab.rl import RslRlModelCfg
 from booster_mjlab.rl.config import (
     RslRlOnPolicyRunnerCfg,
-    RslRlMuonPpoAlgorithmCfg,
+    RslRlPpoAlgorithmCfg,
 )
 
 
@@ -24,7 +24,8 @@ def booster_k1_tracking_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
             activation="elu",
             obs_normalization=True,
         ),
-        algorithm=RslRlMuonPpoAlgorithmCfg(
+        algorithm=RslRlPpoAlgorithmCfg(
+            optimizer="muon",
             value_loss_coef=1.0,
             use_clipped_value_loss=True,
             clip_param=0.2,
