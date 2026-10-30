@@ -6,11 +6,12 @@ pitch/roll joints become passive and two ``*_Ankle_A`` / ``*_Ankle_B`` drive joi
 take their slots in the actuated-joint ordering, so the 23-wide action and
 joint-observation layout is unchanged from the serial model.
 
-The linkage geometry is booster_assets' ``robots/T1/T1_23dof_parallel.xml``. It is
-added to the serial T1 spec here instead of living in a second MJCF, so both
-models share one set of meshes, colliders and joint limits.
+The linkage geometry is booster_assets' ``robots/T1/T1_23dof_parallel.xml``, grafted
+onto ``t1.xml`` in ``t1_parallel.xml`` so both models share one set of meshes,
+colliders and joint limits.
 """
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import mujoco
@@ -19,6 +20,7 @@ from mjlab.entity import EntityCfg
 from mjlab.entity.entity import EntityArticulationInfoCfg
 from mjlab.utils.spec_config import CollisionCfg
 
+from booster_mjlab import BOOSTER_MJLAB_SRC_PATH
 from booster_mjlab.robots.booster_k1.k1_constants import (
     FULL_COLLISION,
     _actuator_cfg,
@@ -92,94 +94,24 @@ T1_DRIVE_RANGE = {
 # MJCF.
 ##
 
-_SHANK = {"Left": "Shank_Left", "Right": "Shank_Right"}
-
-# Cranks and rods are drawn orange like the K1 parallel model's, to set the linkage
-# apart from the robot's own meshes. Their geoms clear the `medium_gray` material
-# they inherit from the T1 default class, since viewers that color by material
-# (e.g. viser) would otherwise ignore the rgba.
-_LINKAGE_RGBA = [0.85, 0.35, 0.25, 1.0]
-_FOOT = {"Left": "left_foot_link", "Right": "right_foot_link"}
-
-
-def _add_linkage(spec: mujoco.MjSpec, side: str) -> None:
-    _, _, linkages = T1_ANKLE.side(side)
-    shank = spec.body(_SHANK[side])
-    foot = spec.body(_FOOT[side])
-    for tag, linkage in linkages.items():
-        low, high = T1_DRIVE_RANGE[f"Ankle_{tag}"]
-        crank = shank.add_body(
-            name=f"{side}_Ankle_Crank_{tag}",
-            pos=linkage.pivot,
-            mass=0.03,
-            ipos=linkage.arm / 2,
-            inertia=[2e-5, 2e-5, 2e-5],
-        )
-        crank.add_joint(
-            name=f"{side}_Ankle_{tag}",
-            axis=[0, 1, 0],
-            range=[low, high],
-            limited=mujoco.mjtLimited.mjLIMITED_TRUE,
-            damping=[0.1, 0, 0],
-        )
-        crank.add_geom(
-            type=mujoco.mjtGeom.mjGEOM_CAPSULE,
-            fromto=[0, 0, 0, *linkage.arm],
-            size=[0.008, 0, 0],
-            rgba=_LINKAGE_RGBA,
-            material="",
-            contype=0,
-            conaffinity=0,
-            group=2,
-            density=0,
-        )
-        rod = crank.add_body(
-            name=f"{side}_Ankle_Rod_{tag}",
-            pos=linkage.arm,
-            mass=0.02,
-            ipos=linkage.rod / 2,
-            inertia=[1e-5, 1e-5, 1e-5],
-        )
-        for axis_name, axis in (("Pitch", [0, 1, 0]), ("Roll", [1, 0, 0])):
-            rod.add_joint(
-                name=f"{side}_Ankle_Rod_{tag}_{axis_name}",
-                axis=axis,
-                limited=mujoco.mjtLimited.mjLIMITED_FALSE,
-                armature=0.0001,
-                damping=[0.01, 0, 0],
-            )
-        rod.add_geom(
-            type=mujoco.mjtGeom.mjGEOM_CAPSULE,
-            fromto=[0, 0, 0, *linkage.rod],
-            size=[0.005, 0, 0],
-            rgba=_LINKAGE_RGBA,
-            material="",
-            contype=0,
-            conaffinity=0,
-            group=2,
-            density=0,
-        )
-        lower = side.lower()
-        rod.add_site(name=f"{lower}_ankle_rod_{tag.lower()}_end", pos=linkage.rod)
-        foot.add_site(name=f"{lower}_ankle_{tag.lower()}_anchor", pos=linkage.anchor)
-        spec.add_equality(
-            name=f"{lower}_ankle_{tag.lower()}_loop",
-            type=mujoco.mjtEq.mjEQ_CONNECT,
-            objtype=mujoco.mjtObj.mjOBJ_SITE,
-            name1=f"{lower}_ankle_rod_{tag.lower()}_end",
-            name2=f"{lower}_ankle_{tag.lower()}_anchor",
-            solref=[0.01, 1],
-            solimp=[0.95, 0.99, 0.001, 0.5, 2],
-        )
-    # The ankle pitch/roll joints are passive now, damped like booster_assets'.
-    for joint in ("Ankle_Pitch", "Ankle_Roll"):
-        spec.joint(f"{side}_{joint}").damping = [0.2, 0, 0]
+# t1.xml with the linkage above added: crank and rod bodies on each shank, an anchor
+# site per rod on each foot, a connect equality closing each loop, and damped
+# passive ankle pitch/roll joints. Its numbers come from T1_ANKLE and
+# T1_DRIVE_RANGE, so keep the two in sync when the geometry changes.
+T1_PARALLEL_XML: Path = (
+    BOOSTER_MJLAB_SRC_PATH / "robots" / "booster_t1" / "xmls" / "t1_parallel.xml"
+)
+assert T1_PARALLEL_XML.exists()
 
 
 def get_spec() -> mujoco.MjSpec:
-    spec = serial.get_spec()
-    for side in ("Left", "Right"):
-        _add_linkage(spec, side)
+    spec = mujoco.MjSpec.from_file(str(T1_PARALLEL_XML))
+
+    # Keep all robot collision geoms in the collision visualization group.
+    for geom in spec.geoms:
+        if geom.name and "_collision" in geom.name.lower():
+            geom.group = 3
+
     return spec
 
 
