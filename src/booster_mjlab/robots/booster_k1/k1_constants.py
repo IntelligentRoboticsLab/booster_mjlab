@@ -164,7 +164,7 @@ FEET_ONLY_COLLISION = CollisionCfg(
 _ACTION_SCALE_FACTOR = 0.25
 
 # Shared delay parameters for all joint groups.
-ACTUATOR_DELAY = dict(delay_min_lag=2, delay_max_lag=8, delay_hold_prob=0.3)
+ACTUATOR_DELAY = dict(delay_min_lag=1, delay_max_lag=3, delay_hold_prob=0.3)
 
 
 def _build_action_scale(
