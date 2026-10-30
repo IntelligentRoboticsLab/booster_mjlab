@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import torch
 
@@ -14,18 +13,12 @@ from mjlab.tasks.velocity.mdp.velocity_command import (
 )
 from mjlab.utils.lab_api.math import quat_apply, quat_apply_inverse, wrap_to_pi
 
-from booster_mjlab.tasks.velocity.visualizer.velocity_joystick import (
-    VelocityJoystick,
-    VelocityJoystickCfg,
-)
-
 if TYPE_CHECKING:
-    import viser
     from mjlab.envs.manager_based_rl_env import ManagerBasedRlEnv
 
 
 class UniformVelocityCommand(_BaseUniformVelocityCommand):
-    """mjlab velocity command with motion-aligned reset sampling and a Viser joystick pad.
+    """mjlab velocity command with motion-aligned reset sampling.
 
     Motion resets write the sampled pose and velocity before the command manager is reset. On that
     first command sample, a configurable fraction of environments therefore use the freshly written
@@ -40,8 +33,6 @@ class UniformVelocityCommand(_BaseUniformVelocityCommand):
 
     def __init__(self, cfg: UniformVelocityCommandCfg, env: ManagerBasedRlEnv):
         super().__init__(cfg, env)
-        # Set by create_gui() when the viewer is active.
-        self._joystick: VelocityJoystick | None = None
         self._yaw_body_id: int | None = None
         if cfg.yaw_body_name is not None:
             body_ids, _ = self.robot.find_bodies(cfg.yaw_body_name)
@@ -262,30 +253,10 @@ class UniformVelocityCommand(_BaseUniformVelocityCommand):
         if self.cfg.heading_command:
             self.is_heading_env[turn_ids] = False
 
-    def create_gui(
-        self,
-        name: str,
-        server: viser.ViserServer,
-        get_env_idx: Callable[[], int],
-        on_change: Callable[[], None] | None = None,
-        request_action: Callable[[str, Any], None] | None = None,
-    ) -> None:
-        super().create_gui(name, server, get_env_idx, on_change, request_action)
-        assert self._joystick_enabled is not None
-        self._joystick = VelocityJoystick(
-            self.cfg.joystick,
-            server,
-            enabled=self._joystick_enabled,
-            sliders=self._joystick_sliders,
-            on_change=on_change,
-        )
-
 
 @dataclass(kw_only=True)
 class UniformVelocityCommandCfg(_BaseUniformVelocityCommandCfg):
-    """mjlab velocity command config with reset-time motion alignment and joystick settings."""
-
-    joystick: VelocityJoystickCfg = field(default_factory=VelocityJoystickCfg)
+    """mjlab velocity command config with reset-time motion alignment."""
 
     motion_aligned_command_prob: float = 0.0
     """Probability of aligning an initial command with the reset root velocity."""
