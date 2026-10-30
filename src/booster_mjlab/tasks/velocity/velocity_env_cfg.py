@@ -29,7 +29,6 @@ from booster_mjlab.tasks.velocity.mdp.rewards import (
     variable_upright,
 )
 from booster_mjlab.tasks.velocity.mdp.velocity_command import UniformVelocityCommandCfg
-from booster_mjlab.terrains.contact import terrain_collisions
 from mjlab.terrains import TerrainEntityCfg
 from mjlab.terrains.config import flat, hf_pyramid_slope, perlin_noise, random_rough
 from mjlab.terrains.terrain_generator import TerrainGeneratorCfg
@@ -459,6 +458,10 @@ def make_velocity_env_cfg() -> ManagerBasedRlEnvCfg:
             func=mdp.illegal_contact,
             params={"sensor_name": "non_foot_ground_contact"},
         ),
+        "out_of_terrain_bounds": TerminationTermCfg(
+          func=mdp.out_of_terrain_bounds,
+          time_out=True,
+        ),
     }
 
     # mjlab restores common_step_counter on resume; keep absolute stage steps.
@@ -515,7 +518,6 @@ def make_velocity_env_cfg() -> ManagerBasedRlEnvCfg:
     return ManagerBasedRlEnvCfg(
         scene=SceneCfg(
             terrain=TerrainEntityCfg(
-                collisions=terrain_collisions(),
                 terrain_type="generator",
                 terrain_generator=replace(VELOCITY_ROUGH_TERRAINS_CFG),
                 max_init_terrain_level=2,
@@ -556,6 +558,7 @@ def make_velocity_env_cfg() -> ManagerBasedRlEnvCfg:
                 timestep=0.005,
                 iterations=10,
                 ls_iterations=20,
+                cone="elliptic",
             ),
         ),
         decimation=4,

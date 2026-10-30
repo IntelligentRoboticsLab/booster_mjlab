@@ -73,11 +73,23 @@ class TorqueSpeedLimits:
         fraction = ((self.speed - velocity.abs()) / self.width).clamp(0.0, 1.0)
         return self.peak * fraction
 
+    def effort_range(self, velocity: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Direction-dependent (lower, upper) torque bounds.
+
+        Only torque that pushes the joint further along its current motion is derated by
+        the torque-speed curve. Torque that brakes or reverses the joint keeps the full
+        peak. At zero velocity both directions are equally unrestricted (fraction is 1).
+        """
+        reduced = self.max_effort(velocity)
+        upper = torch.where(velocity > 0, reduced, self.peak)
+        lower = torch.where(velocity < 0, reduced, self.peak)
+        return -lower, upper
+
     def update(self, entity: Entity, model: ModelBridge) -> None:
-        limit = self.max_effort(entity.data.joint_vel[:, self.target_ids])
+        lower, upper = self.effort_range(entity.data.joint_vel[:, self.target_ids])
         # Read through the bridge: model expansion may replace the backing array.
         model.actuator_forcerange[:, self.ctrl_ids, :] = torch.stack(
-            (-limit, limit), -1
+            (lower, upper), -1
         )
 
 
