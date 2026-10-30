@@ -459,6 +459,10 @@ def make_velocity_env_cfg() -> ManagerBasedRlEnvCfg:
             func=mdp.illegal_contact,
             params={"sensor_name": "non_foot_ground_contact"},
         ),
+        "out_of_terrain_bounds": TerminationTermCfg(
+          func=mdp.out_of_terrain_bounds,
+          time_out=True,
+        ),
     }
 
     # mjlab restores common_step_counter on resume; keep absolute stage steps.
@@ -556,6 +560,7 @@ def make_velocity_env_cfg() -> ManagerBasedRlEnvCfg:
                 timestep=0.005,
                 iterations=10,
                 ls_iterations=20,
+                cone="elliptic",
             ),
         ),
         decimation=4,
