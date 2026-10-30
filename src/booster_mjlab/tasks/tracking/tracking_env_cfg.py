@@ -1,6 +1,5 @@
 """Booster motion tracking environment configuration."""
 
-from booster_mjlab.terrains.contact import terrain_collisions
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs.mdp import dr
 from mjlab.managers import EventTermCfg, ObservationTermCfg
@@ -27,7 +26,6 @@ def make_tracking_env_cfg() -> ManagerBasedRlEnvCfg:
     del cfg.events["base_com"]
 
     assert cfg.scene.terrain is not None
-    cfg.scene.terrain.collisions = terrain_collisions()
 
     cfg.events["push_robot"].interval_range_s = (1.5, 4.0)
     cfg.events["push_robot"].params["velocity_range"] = {

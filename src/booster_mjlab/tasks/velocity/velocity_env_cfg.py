@@ -29,7 +29,6 @@ from booster_mjlab.tasks.velocity.mdp.rewards import (
     variable_upright,
 )
 from booster_mjlab.tasks.velocity.mdp.velocity_command import UniformVelocityCommandCfg
-from booster_mjlab.terrains.contact import terrain_collisions
 from mjlab.terrains import TerrainEntityCfg
 from mjlab.terrains.config import flat, hf_pyramid_slope, perlin_noise, random_rough
 from mjlab.terrains.terrain_generator import TerrainGeneratorCfg
@@ -519,7 +518,6 @@ def make_velocity_env_cfg() -> ManagerBasedRlEnvCfg:
     return ManagerBasedRlEnvCfg(
         scene=SceneCfg(
             terrain=TerrainEntityCfg(
-                collisions=terrain_collisions(),
                 terrain_type="generator",
                 terrain_generator=replace(VELOCITY_ROUGH_TERRAINS_CFG),
                 max_init_terrain_level=2,
