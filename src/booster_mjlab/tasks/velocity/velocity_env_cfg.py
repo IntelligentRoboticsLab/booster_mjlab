@@ -22,7 +22,6 @@ from mjlab.sim import MujocoCfg, SimulationCfg
 from mjlab.tasks.velocity import mdp
 
 from booster_mjlab.mdp.terrain import randomize_terrain_contact
-from booster_mjlab.tasks.velocity.mdp.curriculums import commands_vel_by_tracking
 from booster_mjlab.tasks.velocity.mdp.rewards import (
     standing_pose_deviation_l1,
     track_linear_velocity as booster_mjlab_track_linear_velocity,
@@ -562,27 +561,3 @@ def make_velocity_env_cfg() -> ManagerBasedRlEnvCfg:
         decimation=4,
         episode_length_s=20.0,
     )
-
-
-def use_tracking_velocity_curriculum(
-    cfg: ManagerBasedRlEnvCfg,
-    threshold: float,
-    min_stage_steps: int = 500 * 24,
-    max_stage_steps: int = 5000 * 24,
-) -> ManagerBasedRlEnvCfg:
-    """Advance the command_vel stages on linear-velocity tracking instead of at fixed steps.
-
-    ``threshold`` is a fraction of the most ``track_linear_velocity`` can earn in a full episode, i.e. its logged
-    ``Episode_Reward`` divided by its weight; set it a little below the robot's first-stage plateau. Each stage gets at
-    least 500 iterations for the discriminators to follow and at most the 5k of the fixed schedule.
-    """
-    assert cfg.curriculum is not None
-    term = cfg.curriculum["command_vel"]
-    term.func = commands_vel_by_tracking
-    term.params.update(
-        reward_name="track_linear_velocity",
-        threshold=threshold,
-        min_stage_steps=min_stage_steps,
-        max_stage_steps=max_stage_steps,
-    )
-    return cfg

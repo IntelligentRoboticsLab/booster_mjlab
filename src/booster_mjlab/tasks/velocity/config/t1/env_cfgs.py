@@ -13,19 +13,10 @@ from booster_mjlab.tasks.velocity.mdp.rewards import (
     track_body_angular_velocity_smoothed,
 )
 from booster_mjlab.tasks.velocity.mdp.velocity_command import UniformVelocityCommandCfg
-from booster_mjlab.tasks.velocity.velocity_env_cfg import (
-    use_tracking_velocity_curriculum,
-)
 
 # Swing foot target. The T1 reference motions swing ~1.3x higher than the K1's
 # (median apex 12.6 vs 9.5 cm), so the K1's 6 cm would reward shuffling.
 T1_TARGET_FOOT_HEIGHT = 0.08
-
-# Linear-velocity tracking score (Episode_Reward/track_linear_velocity over its
-# 2.25 weight) at which the command curriculum moves on. Runs 9dzo12dm and
-# u5golm2n reached ~0.62 on the first stage by iteration ~3k and plateaued at
-# ~0.65 by 4k while waiting for the fixed 5k step; later stages held 0.62-0.66.
-T1_TRACKING_CURRICULUM_THRESHOLD = 0.62
 
 # Low-pass time constant (s) on the pelvis yaw rate the yaw command is tracked with. On the
 # T1 AMASS clips, 0.3 s cuts the in-stride pelvis yaw-rate swing from 0.63 to 0.26 rad/s rms
@@ -49,38 +40,6 @@ T1_AMP_JOINT_NAMES = (
 _T1_HEAD = r".*Head_.*"
 
 
-# Command stages after the shared schedule: faster running, then faster turning in
-# place. high_speed_lin_vel_x keeps vy and yaw small at the new speeds.
-T1_EXTRA_VELOCITY_STAGES = [
-    {
-        "step": 20000 * 24,
-        "lin_vel_x": (-1.5, 2.00),
-        "lin_vel_y": (-1.75, 1.75),
-        "ang_vel_z": (-1.5, 1.5),
-    },
-    {
-        "step": 25000 * 24,
-        "lin_vel_x": (-1.5, 2.50),
-        "lin_vel_y": (-1.75, 1.75),
-        "ang_vel_z": (-1.5, 1.5),
-    },
-    {
-        "step": 30000 * 24,
-        "lin_vel_x": (-1.5, 2.75),
-        "lin_vel_y": (-1.75, 1.75),
-        "ang_vel_z": (-1.5, 1.5),
-        "turning_ang_vel_z": (-2.0, 2.0),
-    },
-    {
-        "step": 33000 * 24,
-        "lin_vel_x": (-1.5, 3.0),
-        "lin_vel_y": (-1.75, 1.75),
-        "ang_vel_z": (-1.5, 1.5),
-        "turning_ang_vel_z": (-2.5, 2.5),
-    },
-]
-
-
 def _t1_rough_env_cfg(play: bool) -> ManagerBasedRlEnvCfg:
     return booster_rough_env_cfg(
         get_t1_robot_cfg(), T1_ACTION_SCALE, T1_FOOT_SOLE_SIZE, play=play
@@ -88,7 +47,7 @@ def _t1_rough_env_cfg(play: bool) -> ManagerBasedRlEnvCfg:
 
 
 def make_t1_cfg(cfg: ManagerBasedRlEnvCfg) -> ManagerBasedRlEnvCfg:
-    """Apply the T1's command, reward and curriculum settings to a Booster velocity config."""
+    """Apply the T1's command and reward settings to a Booster velocity config."""
     assert cfg.commands is not None
     twist_cmd = cfg.commands["twist"]
     assert isinstance(twist_cmd, UniformVelocityCommandCfg)
@@ -132,11 +91,7 @@ def make_t1_cfg(cfg: ManagerBasedRlEnvCfg) -> ManagerBasedRlEnvCfg:
     for regime in ("std_standing", "std_walking", "std_running"):
         posture[regime] = {_T1_HEAD: posture[regime][r"Head_.*"]}
 
-    assert cfg.curriculum is not None
-    cfg.curriculum["command_vel"].params["velocity_stages"].extend(
-        T1_EXTRA_VELOCITY_STAGES
-    )
-    return use_tracking_velocity_curriculum(cfg, T1_TRACKING_CURRICULUM_THRESHOLD)
+    return cfg
 
 
 def booster_t1_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
