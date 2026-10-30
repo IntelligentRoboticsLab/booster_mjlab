@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import dataclasses
 import math
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -11,7 +13,7 @@ from mjlab.actuator.actuator import TransmissionType
 from mjlab.entity import Entity, EntityCfg
 from mjlab.managers.event_manager import requires_model_fields
 
-from booster_mjlab.robots.booster_k1.actuators import MotorPositionActuatorCfg
+from booster_mjlab.robots.actuators import MotorPositionActuatorCfg
 
 if TYPE_CHECKING:
     from mjlab.actuator.builtin_actuator import BuiltinPositionActuator
@@ -118,3 +120,22 @@ def initialize_torque_speed_limits(
             raise TypeError("BoosterPositionActuatorCfg requires BoosterEntityCfg")
         entity._torque_speed_limits = TorqueSpeedLimits(actuators)
         entity._torque_speed_model = env.sim.model
+
+
+def with_torque_speed_limits(robot_cfg: EntityCfg) -> BoosterEntityCfg:
+    """Rebuild a robot config with batched motor torque-speed limits.
+
+    Pair with the ``initialize_torque_speed_limits`` startup event.
+    """
+    cfg = BoosterEntityCfg(
+        **{f.name: getattr(robot_cfg, f.name) for f in dataclasses.fields(robot_cfg)}
+    )
+    cfg.articulation = deepcopy(cfg.articulation)
+    assert cfg.articulation is not None
+    cfg.articulation.actuators = tuple(
+        BoosterPositionActuatorCfg(
+            **{f.name: getattr(actuator, f.name) for f in dataclasses.fields(actuator)}
+        )
+        for actuator in cfg.articulation.actuators
+    )
+    return cfg

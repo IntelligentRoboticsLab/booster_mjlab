@@ -1,81 +1,13 @@
 from __future__ import annotations
 
-from functools import partial
-from typing import NamedTuple
+from collections.abc import Callable
 
 from rsl_rl.env import VecEnv
 from tensordict import TensorDict
 
 import torch
 
-
-class JointMirror(NamedTuple):
-    """Left/right mirror of a joint vector: ``joints[:, perm]`` with ``inverted`` negated."""
-
-    perm: tuple[int, ...]
-    """For each joint slot, the slot of its mirror counterpart."""
-
-    inverted: tuple[int, ...]
-    """Joint slots whose axes change sign under a left/right mirror (roll and yaw)."""
-
-
-def _swap_blocks(num_joints: int, *pairs: tuple[int, int, int]) -> tuple[int, ...]:
-    """Permutation swapping each ``(start_a, start_b, length)`` block pair."""
-    perm = list(range(num_joints))
-    for a, b, n in pairs:
-        perm[a : a + n] = range(b, b + n)
-        perm[b : b + n] = range(a, a + n)
-    return tuple(perm)
-
-
-K1_JOINT_DIM = 22
-K1_ACTION_DIM = 22
-
-# Joint slots whose axes change sign under a left/right mirror.
-K1_INVERTED_JOINT_INDICES: tuple[int, ...] = (
-    0,
-    3,
-    5,
-    7,
-    9,
-    11,
-    12,
-    15,
-    17,
-    18,
-    21,
-)
-
-# The parallel ankle's A/B crank axes both point along +y. Unlike serial ankle
-# roll, neither crank changes sign under a left/right mirror.
-K1_PARALLEL_INVERTED_JOINT_INDICES: tuple[int, ...] = tuple(
-    index for index in K1_INVERTED_JOINT_INDICES if index not in (15, 21)
-)
-
-# Head (0-1) stays, arms (2-5 / 6-9) and legs (10-15 / 16-21) swap sides.
-K1_MIRROR_PERM = _swap_blocks(K1_JOINT_DIM, (2, 6, 4), (10, 16, 6))
-K1_MIRROR = JointMirror(K1_MIRROR_PERM, K1_INVERTED_JOINT_INDICES)
-K1_PARALLEL_MIRROR = JointMirror(K1_MIRROR_PERM, K1_PARALLEL_INVERTED_JOINT_INDICES)
-
-# The T1 adds a yaw-only waist between the arms and legs (slot 10):
-# 'AAHead_yaw' (Inverted), 'Head_pitch',
-# 'Left_Shoulder_Pitch', 'Left_Shoulder_Roll' (Inverted), 'Left_Elbow_Pitch', 'Left_Elbow_Yaw' (Inverted),
-# 'Right_Shoulder_Pitch', 'Right_Shoulder_Roll' (Inverted), 'Right_Elbow_Pitch', 'Right_Elbow_Yaw' (Inverted),
-# 'Waist' (Inverted),
-# 'Left_Hip_Pitch', 'Left_Hip_Roll' (Inverted), 'Left_Hip_Yaw' (Inverted), 'Left_Knee_Pitch', 'Left_Ankle_Pitch', 'Left_Ankle_Roll' (Inverted),
-# 'Right_Hip_Pitch', 'Right_Hip_Roll' (Inverted), 'Right_Hip_Yaw' (Inverted), 'Right_Knee_Pitch', 'Right_Ankle_Pitch', 'Right_Ankle_Roll' (Inverted)
-T1_JOINT_DIM = 23
-T1_MIRROR = JointMirror(
-    perm=_swap_blocks(T1_JOINT_DIM, (2, 6, 4), (11, 17, 6)),
-    inverted=(0, 3, 5, 7, 9, 10, 12, 13, 16, 18, 19, 22),
-)
-
-# The parallel T1's ankle slots hold the A/B cranks, whose axes both point along +y
-# and map onto the same crank of the other leg, so neither changes sign.
-T1_PARALLEL_MIRROR = JointMirror(
-    perm=T1_MIRROR.perm,
-    inverted=tuple(i for i in T1_MIRROR.inverted if i not in (16, 22)),
-)
+from booster_mjlab.robots.mirror import JointMirror
 
 CRITIC_EXTRA_DIM = 15
 
@@ -94,9 +26,6 @@ def _policy_term_dims(mirror: JointMirror) -> tuple[int, ...]:
     """Widths of the actor observation terms, in order (see ``_policy_dim``)."""
     num_joints = len(mirror.perm)
     return (3, 3, num_joints, num_joints, num_joints, 3)
-
-
-POLICY_DIM_NO_BASE_LIN_VEL = _policy_dim(K1_MIRROR)
 
 
 def _augment_symmetries(
@@ -161,50 +90,35 @@ def _augment_symmetries(
     return obs, actions
 
 
-def augment_symmetries(
-    env: VecEnv, obs: TensorDict | None, actions: torch.Tensor | None
-) -> tuple[TensorDict | None, torch.Tensor | None]:
-    """Apply left/right symmetry for the serial-ankle K1."""
-    del env
-    return _augment_symmetries(obs, actions, K1_MIRROR)
+AugmentSymmetries = Callable[
+    [VecEnv, TensorDict | None, torch.Tensor | None],
+    tuple[TensorDict | None, torch.Tensor | None],
+]
 
 
-def augment_symmetries_parallel(
-    env: VecEnv, obs: TensorDict | None, actions: torch.Tensor | None
-) -> tuple[TensorDict | None, torch.Tensor | None]:
-    """Apply left/right symmetry for the parallel-ankle K1."""
-    del env
-    return _augment_symmetries(obs, actions, K1_PARALLEL_MIRROR)
+def make_augment_symmetries(mirror: JointMirror) -> AugmentSymmetries:
+    """rsl_rl ``data_augmentation_func`` applying left/right symmetry with ``mirror``.
+
+    ``mirror`` must be ordered like the policy's joint observations and actions.
+    """
+
+    def augment_symmetries(
+        env: VecEnv, obs: TensorDict | None, actions: torch.Tensor | None
+    ) -> tuple[TensorDict | None, torch.Tensor | None]:
+        del env
+        return _augment_symmetries(obs, actions, mirror)
+
+    return augment_symmetries
 
 
-def augment_symmetries_t1(
-    env: VecEnv, obs: TensorDict | None, actions: torch.Tensor | None
-) -> tuple[TensorDict | None, torch.Tensor | None]:
-    """Apply left/right symmetry for the T1."""
-    del env
-    return _augment_symmetries(obs, actions, T1_MIRROR)
-
-
-def augment_symmetries_t1_parallel(
-    env: VecEnv, obs: TensorDict | None, actions: torch.Tensor | None
-) -> tuple[TensorDict | None, torch.Tensor | None]:
-    """Apply left/right symmetry for the parallel-ankle T1."""
-    del env
-    return _augment_symmetries(obs, actions, T1_PARALLEL_MIRROR)
-
-
-def flip_action_left_right(
-    action: torch.Tensor, mirror: JointMirror = K1_MIRROR
-) -> torch.Tensor:
+def flip_action_left_right(action: torch.Tensor, mirror: JointMirror) -> torch.Tensor:
     action = action.clone()
     # switch left and right joints
     action = _switch_joints_left_right(action, mirror)
     return action
 
 
-def flip_policy_obs_left_right(
-    obs: torch.Tensor, mirror: JointMirror = K1_MIRROR
-) -> torch.Tensor:
+def flip_policy_obs_left_right(obs: torch.Tensor, mirror: JointMirror) -> torch.Tensor:
     obs = obs.clone()
     policy_dim = obs.shape[1]
     num_linear_obs_blocks = _get_num_linear_obs_blocks(policy_dim, mirror)
@@ -259,9 +173,7 @@ def flip_policy_obs_left_right(
     return obs
 
 
-def flip_actor_obs_left_right(
-    obs: torch.Tensor, mirror: JointMirror = K1_MIRROR
-) -> torch.Tensor:
+def flip_actor_obs_left_right(obs: torch.Tensor, mirror: JointMirror) -> torch.Tensor:
     """Mirror an actor observation that may stack several history frames.
 
     mjlab flattens history per term, so a stacked actor observation is term-major:
@@ -295,9 +207,7 @@ def flip_actor_obs_left_right(
     )
 
 
-def flip_critic_obs_left_right(
-    obs: torch.Tensor, mirror: JointMirror = K1_MIRROR
-) -> torch.Tensor:
+def flip_critic_obs_left_right(obs: torch.Tensor, mirror: JointMirror) -> torch.Tensor:
     obs = obs.clone()
     policy_dim = obs.shape[1] - CRITIC_EXTRA_DIM
     if policy_dim != _policy_dim(mirror):
@@ -359,12 +269,7 @@ def flip_critic_obs_left_right(
     return obs
 
 
-SUPPORTED_POLICY_DIMS = (POLICY_DIM_NO_BASE_LIN_VEL, _policy_dim(T1_MIRROR))
-
-
-def _get_num_linear_obs_blocks(
-    policy_dim: int, mirror: JointMirror = K1_MIRROR
-) -> int | None:
+def _get_num_linear_obs_blocks(policy_dim: int, mirror: JointMirror) -> int | None:
     """Infer number of leading 3D base linear vectors from policy dim.
 
     The current velocity policy layout (see ``_policy_dim``) has none.
@@ -375,20 +280,12 @@ def _get_num_linear_obs_blocks(
 
 
 def _switch_joints_left_right(
-    joints: torch.Tensor, mirror: JointMirror = K1_MIRROR
+    joints: torch.Tensor, mirror: JointMirror
 ) -> torch.Tensor:
     """Switch left and right joints in a joint tensor of shape (..., J).
 
-    K1 joint order:
-
-    'Head_Yaw' (Inverted), 'Head_Pitch',
-    'Left_Shoulder_Pitch', 'Left_Shoulder_Roll' (Inverted), 'Left_Elbow_Pitch', 'Left_Elbow_Yaw' (Inverted),
-    'Right_Shoulder_Pitch', 'Right_Shoulder_Roll' (Inverted), 'Right_Elbow_Pitch', 'Right_Elbow_Yaw' (Inverted),
-    'Left_Hip_Pitch', 'Left_Hip_Roll' (Inverted), 'Left_Hip_Yaw' (Inverted), 'Left_Knee_Pitch', 'Left_Ankle_Pitch', 'Left_Ankle_Roll' (Inverted),
-    'Right_Hip_Pitch', 'Right_Hip_Roll' (Inverted), 'Right_Hip_Yaw' (Inverted), 'Right_Knee_Pitch', 'Right_Ankle_Pitch', 'Right_Ankle_Roll' (Inverted)
-
-    Joints marked as "Inverted" need to have their sign flipped when calculating the left-right symmetry.
-    See ``T1_MIRROR`` for the T1 layout.
+    Each slot takes its mirror counterpart's value, and slots whose axes change sign
+    under a left/right mirror (roll and yaw) are negated; see ``JointMirror``.
     """
     if joints.shape[1] != len(mirror.perm):
         raise ValueError(
@@ -397,23 +294,6 @@ def _switch_joints_left_right(
         )
     joints_flipped = joints[:, list(mirror.perm)]
 
-    joints_flipped[:, list(mirror.inverted)] = -joints_flipped[
-        :, list(mirror.inverted)
-    ]
+    joints_flipped[:, list(mirror.inverted)] = -joints_flipped[:, list(mirror.inverted)]
 
     return joints_flipped
-
-
-flip_k1_action_left_right = flip_action_left_right
-flip_k1_policy_obs_left_right = flip_policy_obs_left_right
-flip_k1_critic_obs_left_right = flip_critic_obs_left_right
-
-flip_k1_parallel_action_left_right = partial(
-    flip_action_left_right, mirror=K1_PARALLEL_MIRROR
-)
-flip_k1_parallel_policy_obs_left_right = partial(
-    flip_policy_obs_left_right, mirror=K1_PARALLEL_MIRROR
-)
-flip_k1_parallel_critic_obs_left_right = partial(
-    flip_critic_obs_left_right, mirror=K1_PARALLEL_MIRROR
-)

@@ -10,12 +10,14 @@ from mjlab.entity.entity import EntityArticulationInfoCfg
 from mjlab.utils.spec_config import CollisionCfg
 
 from booster_mjlab import BOOSTER_MJLAB_SRC_PATH
-from booster_mjlab.robots.booster_k1.actuators import ActuatorConfig, pd_gains
-from booster_mjlab.robots.booster_k1.k1_constants import (
-    FULL_COLLISION,
-    _actuator_cfg,
-    _build_action_scale,
+from booster_mjlab.robots.actuators import (
+    ActuatorConfig,
+    actuator_cfg,
+    build_action_scale,
+    pd_gains,
 )
+from booster_mjlab.robots.collisions import FULL_COLLISION
+from booster_mjlab.robots.mirror import Mirror
 
 if TYPE_CHECKING:
     import torch
@@ -155,14 +157,14 @@ T1_HEAD = _joint(ACTUATOR_DM4310, 1.2, 7.0)
 
 # Shared with the parallel-ankle T1.
 T1_LEG_WAIST_ACTUATORS = (
-    _actuator_cfg((".*_Knee_Pitch",), T1_KNEE),
-    _actuator_cfg((".*_Hip_Pitch",), T1_HIP_PITCH),
-    _actuator_cfg((".*_Hip_Roll",), T1_HIP_ROLL),
-    _actuator_cfg((".*_Hip_Yaw",), T1_HIP_YAW),
-    _actuator_cfg(("Waist",), T1_WAIST),
+    actuator_cfg((".*_Knee_Pitch",), T1_KNEE),
+    actuator_cfg((".*_Hip_Pitch",), T1_HIP_PITCH),
+    actuator_cfg((".*_Hip_Roll",), T1_HIP_ROLL),
+    actuator_cfg((".*_Hip_Yaw",), T1_HIP_YAW),
+    actuator_cfg(("Waist",), T1_WAIST),
 )
 T1_ARM_HEAD_ACTUATORS = (
-    _actuator_cfg(
+    actuator_cfg(
         (
             ".*_Shoulder_Pitch",
             ".*_Shoulder_Roll",
@@ -171,21 +173,21 @@ T1_ARM_HEAD_ACTUATORS = (
         ),
         T1_ARM,
     ),
-    _actuator_cfg(("AAHead_yaw", "Head_pitch"), T1_HEAD),
+    actuator_cfg(("AAHead_yaw", "Head_pitch"), T1_HEAD),
 )
 
 
 T1_ARTICULATION = EntityArticulationInfoCfg(
     actuators=(
         *T1_LEG_WAIST_ACTUATORS,
-        _actuator_cfg((".*_Ankle_Pitch", ".*_Ankle_Roll"), T1_ANKLE),
+        actuator_cfg((".*_Ankle_Pitch", ".*_Ankle_Roll"), T1_ANKLE),
         *T1_ARM_HEAD_ACTUATORS,
     ),
     soft_joint_pos_limit_factor=0.9,
 )
 
 
-T1_ACTION_SCALE = _build_action_scale(T1_ARTICULATION)
+T1_ACTION_SCALE = build_action_scale(T1_ARTICULATION)
 
 
 def get_t1_robot_cfg(
@@ -244,6 +246,35 @@ T1_JOINT_ORDER: tuple[str, ...] = (
     "Right_Ankle_Pitch",
     "Right_Ankle_Roll",
 )
+
+
+# Joints whose axes change sign under a left/right mirror (roll and yaw axes). The arm
+# links are named AL1..AL3 / AR1..AR3 rather than Left/Right.
+T1_MIRROR = Mirror(
+    joint_names=T1_JOINT_ORDER,
+    inverted_joints=frozenset(
+        (
+            "AAHead_yaw",
+            "Waist",
+            *(
+                f"{side}_{joint}"
+                for side in ("Left", "Right")
+                for joint in (
+                    "Shoulder_Roll",
+                    "Elbow_Yaw",
+                    "Hip_Roll",
+                    "Hip_Yaw",
+                    "Ankle_Roll",
+                )
+            ),
+        )
+    ),
+    name_pairs=tuple((f"AL{i}", f"AR{i}") for i in (1, 2, 3)),
+)
+
+# Inner sole contact area sampled by the foot clearance scan. The T1 foot is
+# 0.225 x 0.10 m; this keeps the K1 grid's margin to the foot edge.
+T1_FOOT_SOLE_SIZE = (0.16, 0.075)
 
 
 def get_t1_default_joint_pos(

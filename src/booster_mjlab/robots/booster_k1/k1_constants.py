@@ -9,10 +9,13 @@ from mjlab.entity.entity import EntityArticulationInfoCfg
 from mjlab.utils.spec_config import CollisionCfg
 
 from booster_mjlab import BOOSTER_MJLAB_SRC_PATH
-from booster_mjlab.robots.booster_k1.actuators import (
+from booster_mjlab.robots.actuators import (
     ActuatorConfig,
-    MotorPositionActuatorCfg,
+    actuator_cfg,
+    build_action_scale,
 )
+from booster_mjlab.robots.collisions import FULL_COLLISION
+from booster_mjlab.robots.mirror import Mirror
 
 if TYPE_CHECKING:
     import torch
@@ -118,75 +121,6 @@ CRAWL_KEYFRAME = EntityCfg.InitialStateCfg(
 
 
 ##
-# Collision config.
-##
-
-# Pair with terrain_collisions(). Equal priority with the terrain, so contact
-# compliance mixes with the (randomized) terrain solref/solimp; the terrain's
-# zero friction keeps the robot's friction coefficients in effect.
-FULL_COLLISION = CollisionCfg(
-    geom_names_expr=(".*_collision",),
-    contype=1,
-    conaffinity=1,
-    solref=(0.01, 1),
-    condim=3,
-    priority=0,
-    solmix=0.001,
-    friction={r"^(left|right)_foot_collision$": (1.0,), ".*": (0.45,)},
-)
-
-FULL_COLLISION_WITHOUT_SELF = CollisionCfg(
-    geom_names_expr=(".*_collision",),
-    contype=0,
-    conaffinity=1,
-    # Harden all collision geoms.
-    solref=(0.01, 1),
-    condim={r"^(left|right)_foot_collision$": 3, ".*_collision": 1},
-    priority={r"^(left|right)_foot_collision$": 1, ".*": 0},
-    friction={r"^(left|right)_foot_collision$": (0.6,)},
-)
-
-# This disables all collisions except the feet.
-# Feet get condim=3, all other geoms are disabled.
-FEET_ONLY_COLLISION = CollisionCfg(
-    geom_names_expr=(r"^(left|right)_foot_collision$",),
-    contype=0,
-    conaffinity=1,
-    solref=(0.01, 1),
-    condim=3,
-    priority=1,
-    friction=(0.6,),
-)
-
-
-# All K1 articulations get the same scale rule for the joint position action:
-# 0.25 * effort_limit / stiffness per joint group.
-_ACTION_SCALE_FACTOR = 0.25
-
-# Shared delay parameters for all joint groups.
-ACTUATOR_DELAY = dict(delay_min_lag=2, delay_max_lag=8, delay_hold_prob=0.3)
-
-
-def _build_action_scale(
-    articulation: EntityArticulationInfoCfg, factor: float = _ACTION_SCALE_FACTOR
-) -> dict[str, float]:
-    """Build joint-name -> scale dict from an articulation tuple.
-
-    Each actuator group must expose ``effort_limit`` and ``stiffness``. The same
-    scale (factor * effort_limit / stiffness) is applied to every joint matched
-    by that group's regex.
-    """
-    out: dict[str, float] = {}
-    for a in articulation.actuators:
-        e = a.effort_limit
-        s = a.stiffness
-        assert e is not None
-        for n in a.target_names_expr:
-            out[n] = factor * e / s
-    return out
-
-
-##
 # K1 motor constants (one per physical motor kind).
 ##
 # Motor limits match booster_train/assets/robots/booster.py; PD gains match
@@ -271,27 +205,13 @@ ACTUATOR_K1_ANKLE = ActuatorConfig(
 ##
 
 
-def _actuator_cfg(
-    target_names_expr: tuple[str, ...], a: ActuatorConfig
-) -> MotorPositionActuatorCfg:
-    return MotorPositionActuatorCfg(
-        motor=a,
-        target_names_expr=target_names_expr,
-        effort_limit=a.effort_limit,
-        armature=a.armature,
-        stiffness=a.stiffness,
-        damping=a.damping,
-        **ACTUATOR_DELAY,
-    )
-
-
-K1_ACTUATOR_E6416 = _actuator_cfg((".*_Knee_Pitch",), ACTUATOR_E6416)
-K1_ACTUATOR_E4310 = _actuator_cfg((".*_Hip_Yaw",), ACTUATOR_E4310)
-K1_ACTUATOR_ANKLE = _actuator_cfg((".*_Ankle_.*",), ACTUATOR_K1_ANKLE)
-K1_ACTUATOR_E6408 = _actuator_cfg((".*_Hip_Pitch",), ACTUATOR_E6408)
-K1_ACTUATOR_E4315 = _actuator_cfg((".*_Hip_Roll",), ACTUATOR_E4315)
-K1_ACTUATOR_R14 = _actuator_cfg((".*_Shoulder_.*", ".*_Elbow_.*"), ACTUATOR_R14)
-K1_ACTUATOR_HT4438 = _actuator_cfg(("Head_.*",), ACTUATOR_HT4438)
+K1_ACTUATOR_E6416 = actuator_cfg((".*_Knee_Pitch",), ACTUATOR_E6416)
+K1_ACTUATOR_E4310 = actuator_cfg((".*_Hip_Yaw",), ACTUATOR_E4310)
+K1_ACTUATOR_ANKLE = actuator_cfg((".*_Ankle_.*",), ACTUATOR_K1_ANKLE)
+K1_ACTUATOR_E6408 = actuator_cfg((".*_Hip_Pitch",), ACTUATOR_E6408)
+K1_ACTUATOR_E4315 = actuator_cfg((".*_Hip_Roll",), ACTUATOR_E4315)
+K1_ACTUATOR_R14 = actuator_cfg((".*_Shoulder_.*", ".*_Elbow_.*"), ACTUATOR_R14)
+K1_ACTUATOR_HT4438 = actuator_cfg(("Head_.*",), ACTUATOR_HT4438)
 
 
 K1_ARTICULATION = EntityArticulationInfoCfg(
@@ -308,7 +228,7 @@ K1_ARTICULATION = EntityArticulationInfoCfg(
 )
 
 
-K1_ACTION_SCALE = _build_action_scale(K1_ARTICULATION)
+K1_ACTION_SCALE = build_action_scale(K1_ARTICULATION)
 
 
 def get_k1_robot_cfg(
@@ -365,6 +285,32 @@ K1_JOINT_ORDER: tuple[str, ...] = (
     "Right_Ankle_Pitch",
     "Right_Ankle_Roll",
 )
+
+
+# Joints whose axes change sign under a left/right mirror (roll and yaw axes).
+K1_MIRROR = Mirror(
+    joint_names=K1_JOINT_ORDER,
+    inverted_joints=frozenset(
+        (
+            "Head_Yaw",
+            *(
+                f"{side}_{joint}"
+                for side in ("Left", "Right")
+                for joint in (
+                    "Shoulder_Roll",
+                    "Elbow_Yaw",
+                    "Hip_Roll",
+                    "Hip_Yaw",
+                    "Ankle_Roll",
+                )
+            ),
+        )
+    ),
+)
+
+# Inner sole contact area sampled by the foot clearance scan, without spilling
+# past the foot.
+K1_FOOT_SOLE_SIZE = (0.13, 0.06)
 
 
 def get_k1_default_joint_pos(

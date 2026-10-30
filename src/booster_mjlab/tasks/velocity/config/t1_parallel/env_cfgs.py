@@ -8,7 +8,7 @@ from booster_mjlab.robots.booster_t1.t1_parallel_constants import (
     T1_PARALLEL_FREE_RESET_JOINTS,
     get_t1_parallel_robot_cfg,
 )
-from booster_mjlab.tasks.velocity.config.k1_parallel.env_cfgs import (
+from booster_mjlab.tasks.velocity.config.parallel_ankle import (
     convert_to_parallel_ankle,
 )
 from booster_mjlab.tasks.velocity.config.t1.env_cfgs import (

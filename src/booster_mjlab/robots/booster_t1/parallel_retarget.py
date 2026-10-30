@@ -1,12 +1,11 @@
 """Retarget serial-T1 motion clips onto the parallel-ankle joint layout.
 
 Serial clips store ``dof_pos`` as (frames, 23); the parallel model has 35 joints.
-See :mod:`booster_mjlab.robots.booster_k1.parallel_retarget` for the method.
+See :mod:`booster_mjlab.robots.parallel_retarget` for the method.
 """
 
 from booster_mjlab.motion import MotionFile
-from booster_mjlab.robots.booster_k1 import parallel_retarget
-from booster_mjlab.robots.booster_k1.parallel_retarget import ParallelLayout
+from booster_mjlab.robots import parallel_retarget
 from booster_mjlab.robots.booster_t1.t1_constants import T1_JOINT_ORDER
 from booster_mjlab.robots.booster_t1.t1_parallel_constants import (
     HOME_KEYFRAME,
@@ -14,6 +13,7 @@ from booster_mjlab.robots.booster_t1.t1_parallel_constants import (
     T1_DRIVE_RANGE,
     T1_PARALLEL_JOINT_ORDER,
 )
+from booster_mjlab.robots.parallel_retarget import ParallelLayout
 
 T1_LAYOUT = ParallelLayout(
     serial_joints=T1_JOINT_ORDER,

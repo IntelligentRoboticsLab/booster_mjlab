@@ -45,12 +45,11 @@ def track_body_angular_velocity(
 class track_body_angular_velocity_smoothed(ManagerTermBase):
     """track_body_angular_velocity with the body's yaw rate low-passed before it is compared to the command.
 
-    A walking humanoid's pelvis yaws back and forth within each stride; in the T1 AMASS clips this oscillation is
-    0.62 rad/s rms at walking speeds, against 0.38 rad/s on the trunk. Tracking the pelvis's instantaneous yaw rate
-    therefore penalizes the hip rotation the style reward asks for. A first-order low-pass with time constant
-    ``yaw_time_constant`` leaves 0.26 rad/s of it at 0.3 s, and lags the command by about that time. The measured
-    body stays the pelvis, so the waist still cannot stand in for turning. Roll and pitch rates are penalized
-    unfiltered.
+    A walking humanoid's pelvis yaws back and forth within each stride, more than the trunk above a waist joint
+    does. Tracking the pelvis's instantaneous yaw rate therefore penalizes the hip rotation the style reward asks
+    for. A first-order low-pass with time constant ``yaw_time_constant`` damps that oscillation, and lags the
+    command by about that time. The measured body stays the pelvis, so the waist still cannot stand in for turning.
+    Roll and pitch rates are penalized unfiltered.
     """
 
     def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):

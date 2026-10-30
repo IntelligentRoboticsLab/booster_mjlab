@@ -11,28 +11,61 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import mujoco
+import numpy as np
 from mjlab.entity import EntityCfg
 from mjlab.entity.entity import EntityArticulationInfoCfg
 from mjlab.utils.spec_config import CollisionCfg
 
 from booster_mjlab import BOOSTER_MJLAB_SRC_PATH
-from booster_mjlab.robots.booster_k1.actuators import ActuatorConfig
+from booster_mjlab.robots.actuators import (
+    ActuatorConfig,
+    actuator_cfg,
+    build_action_scale,
+)
 from booster_mjlab.robots.booster_k1.k1_constants import (
-    _ACTION_SCALE_FACTOR,
     ACTUATOR_E4310,
-    FULL_COLLISION,
     K1_ACTUATOR_E4310,
     K1_ACTUATOR_E4315,
     K1_ACTUATOR_E6408,
     K1_ACTUATOR_E6416,
     K1_ACTUATOR_HT4438,
     K1_ACTUATOR_R14,
-    _actuator_cfg,
-    _build_action_scale,
 )
+from booster_mjlab.robots.collisions import FULL_COLLISION
+from booster_mjlab.robots.parallel_ankle_ik import AnkleGeometry, Linkage
 
 if TYPE_CHECKING:
     import torch
+
+##
+# Linkage geometry (left leg, shank frame; the right leg is its mirror image).
+##
+
+# Crank pivots in the shank frame, crank arm vectors, and rod vectors, all at
+# the zero pose (where the loop closes exactly). Rod anchors are in the foot
+# frame. All from ``xmls/k1_parallel.xml``.
+K1_ANKLE = AnkleGeometry(
+    # Ankle cross origin in the shank frame.
+    origin=np.array([0.00019706, 0.0002, -0.24519]),
+    # The K1 foot link sits on the ankle cross origin.
+    foot_offset=np.zeros(3),
+    linkage_a=Linkage(
+        pivot=np.array([-0.00148194, 0.0242, -0.081637428]),
+        arm=np.array([0.0408490153, 0.0, -0.00351538739]),
+        rod=np.array([-0.0681700153, 0.0, -0.142537185]),
+        anchor=np.array([-0.029, 0.024, 0.0175]),
+    ),
+    linkage_b=Linkage(
+        pivot=np.array([-0.00967794, -0.0238, -0.140057167]),
+        arm=np.array([0.032999524, 0.0, -0.0243316957]),
+        rod=np.array([-0.052124524, 0.0, -0.0633011373]),
+        anchor=np.array([-0.029, -0.024, 0.0175]),
+    ),
+)
+
+# Crank hard stops, from the MJCF.
+K1_DRIVE_RANGE = {"Ankle_A": (-0.55, 0.8), "Ankle_B": (-0.5, 1.1)}
+
 
 ##
 # MJCF and assets.
@@ -231,7 +264,7 @@ ACTUATOR_K1_ANKLE_DRIVE = ActuatorConfig(
 
 _ANKLE_DRIVE_NAMES = (r".*_Ankle_A", r".*_Ankle_B")
 
-K1_ACTUATOR_ANKLE_DRIVE = _actuator_cfg(_ANKLE_DRIVE_NAMES, ACTUATOR_K1_ANKLE_DRIVE)
+K1_ACTUATOR_ANKLE_DRIVE = actuator_cfg(_ANKLE_DRIVE_NAMES, ACTUATOR_K1_ANKLE_DRIVE)
 
 K1_PARALLEL_ARTICULATION = EntityArticulationInfoCfg(
     actuators=(
@@ -246,9 +279,7 @@ K1_PARALLEL_ARTICULATION = EntityArticulationInfoCfg(
     soft_joint_pos_limit_factor=0.9,
 )
 
-K1_PARALLEL_ACTION_SCALE = _build_action_scale(
-    K1_PARALLEL_ARTICULATION, _ACTION_SCALE_FACTOR
-)
+K1_PARALLEL_ACTION_SCALE = build_action_scale(K1_PARALLEL_ARTICULATION)
 
 
 ##

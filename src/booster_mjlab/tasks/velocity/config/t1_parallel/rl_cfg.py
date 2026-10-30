@@ -2,69 +2,80 @@
 
 from booster_mjlab.amp.runners import AmpOnPolicyRunnerCfg
 from booster_mjlab.rl.config import RslRlOnPolicyRunnerCfg
-from booster_mjlab.tasks.velocity.config.t1.rl_cfg import (
-    booster_t1_amp_ppo_runner_cfg,
-    booster_t1_amp_ppo_symmetric_history_runner_cfg,
-    booster_t1_amp_ppo_symmetric_runner_cfg,
-    booster_t1_ppo_runner_cfg,
-    booster_t1_symmetric_ppo_runner_cfg,
+from booster_mjlab.robots.booster_t1.t1_constants import T1_MIRROR
+from booster_mjlab.robots.booster_t1.t1_parallel_constants import (
+    T1_PARALLEL_ACTUATED_JOINTS,
 )
+from booster_mjlab.tasks.velocity.config.rl_cfg import booster_ppo_runner_cfg
+from booster_mjlab.tasks.velocity.config.t1.rl_cfg import t1_amp_ppo_runner_cfg
+from booster_mjlab.tasks.velocity.mdp.observations import make_augment_symmetries
 
-_AUGMENTATION_FUNC = (
-    "booster_mjlab.tasks.velocity.mdp.observations:augment_symmetries_t1_parallel"
+augment_symmetries = make_augment_symmetries(
+    T1_MIRROR.joint_mirror(T1_PARALLEL_ACTUATED_JOINTS)
 )
+"""Left/right symmetry over the actuated joints. The A/B crank axes both point along
++y and map onto the same crank of the other leg, so neither changes sign."""
 
+_AUGMENTATION_FUNC = f"{__name__}:augment_symmetries"
+
+# The serial dataset is retargeted onto the linkage at load time, after
+# augmentations (so mirroring still sees the serial layout).
 PARALLEL_MOTION_TRANSFORM = (
     "booster_mjlab.robots.booster_t1.parallel_retarget:to_parallel"
 )
-
-
-def _to_parallel(cfg, experiment_prefix: str = "t1_"):
-    """Point a serial T1 runner cfg at the parallel layout's symmetry and experiment name."""
-    if cfg.algorithm.symmetry_cfg is not None:
-        cfg.algorithm.symmetry_cfg.data_augmentation_func = _AUGMENTATION_FUNC
-    cfg.experiment_name = cfg.experiment_name.replace(
-        experiment_prefix, "t1_parallel_", 1
-    )
-    if isinstance(cfg, AmpOnPolicyRunnerCfg):
-        # The serial dataset is retargeted onto the linkage at load time, after
-        # augmentations (so mirroring still sees the serial layout).
-        cfg.dataset_transform = PARALLEL_MOTION_TRANSFORM
-    return cfg
 
 
 def booster_t1_parallel_ppo_runner_cfg(
     optimizer: str = "adam",
 ) -> RslRlOnPolicyRunnerCfg:
     """Create the base parallel-ankle PPO runner configuration."""
-    return _to_parallel(booster_t1_ppo_runner_cfg(optimizer=optimizer))
+    return booster_ppo_runner_cfg(
+        "t1_parallel_velocity", _AUGMENTATION_FUNC, optimizer=optimizer
+    )
 
 
 def booster_t1_parallel_symmetric_ppo_runner_cfg(
     optimizer: str = "adam",
 ) -> RslRlOnPolicyRunnerCfg:
     """Create the parallel-ankle PPO config with symmetry augmentation."""
-    return _to_parallel(booster_t1_symmetric_ppo_runner_cfg(optimizer=optimizer))
+    return booster_ppo_runner_cfg(
+        "t1_parallel_velocity_symmetric",
+        _AUGMENTATION_FUNC,
+        use_data_augmentation=True,
+        optimizer=optimizer,
+    )
 
 
 def booster_t1_parallel_amp_ppo_runner_cfg(
     optimizer: str = "adam",
 ) -> AmpOnPolicyRunnerCfg:
     """Create the AMP runner using motion retargeted to the parallel linkage."""
-    return _to_parallel(booster_t1_amp_ppo_runner_cfg(optimizer=optimizer))
+    return t1_amp_ppo_runner_cfg(
+        "t1_parallel_velocity_amp",
+        dataset_transform=PARALLEL_MOTION_TRANSFORM,
+        optimizer=optimizer,
+    )
 
 
 def booster_t1_parallel_amp_ppo_symmetric_runner_cfg(
     optimizer: str = "adam",
 ) -> AmpOnPolicyRunnerCfg:
     """Create parallel AMP PPO with policy symmetry augmentation."""
-    return _to_parallel(booster_t1_amp_ppo_symmetric_runner_cfg(optimizer=optimizer))
+    return t1_amp_ppo_runner_cfg(
+        "t1_parallel_velocity_amp_symmetric",
+        data_augmentation_func=_AUGMENTATION_FUNC,
+        dataset_transform=PARALLEL_MOTION_TRANSFORM,
+        optimizer=optimizer,
+    )
 
 
 def booster_t1_parallel_amp_ppo_symmetric_history_runner_cfg(
     optimizer: str = "adam",
 ) -> AmpOnPolicyRunnerCfg:
     """Create parallel symmetric AMP PPO for the stacked-history actor."""
-    return _to_parallel(
-        booster_t1_amp_ppo_symmetric_history_runner_cfg(optimizer=optimizer)
+    return t1_amp_ppo_runner_cfg(
+        "t1_parallel_velocity_amp_symmetric_history",
+        data_augmentation_func=_AUGMENTATION_FUNC,
+        dataset_transform=PARALLEL_MOTION_TRANSFORM,
+        optimizer=optimizer,
     )

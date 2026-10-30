@@ -2,13 +2,14 @@
 
 from booster_mjlab.rl.runner import BoosterOnPolicyRunner
 from booster_mjlab.tasks.velocity.config import with_amp_obs_group
+from booster_mjlab.tasks.velocity.config.parallel_ankle import with_parallel_amp_joints
 from booster_mjlab.tasks.velocity.rl.runner import VelocityAmpOnPolicyRunner
 from mjlab.tasks.registry import register_mjlab_task
 
 from .env_cfgs import (
+    AMP_JOINT_NAMES,
     booster_k1_parallel_flat_env_cfg,
     booster_k1_parallel_rough_env_cfg,
-    with_parallel_amp_joints,
 )
 from .rl_cfg import (
     booster_k1_parallel_amp_ppo_runner_cfg,
@@ -27,7 +28,8 @@ def _with_amp_reset_cfg(env_cfg, runner_cfg):
             dataset_weights=runner_cfg.dataset_weights,
             augmentations=runner_cfg.dataset_augmentations,
             dataset_transform=runner_cfg.dataset_transform,
-        )
+        ),
+        AMP_JOINT_NAMES,
     )
 
 

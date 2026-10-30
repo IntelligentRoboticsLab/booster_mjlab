@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import re
+import importlib
 from dataclasses import dataclass
-from typing import Any, Mapping, Protocol, Sequence, runtime_checkable
+from typing import TYPE_CHECKING, Any, Mapping, Protocol, Sequence, runtime_checkable
 
 import numpy as np
 import torch
@@ -10,101 +10,21 @@ from scipy.spatial.transform import Rotation
 
 from .motion_data import MotionFile
 
-
-# K1 joint order (22 DOF total, order matches MuJoCo qpos after floating base)
-_K1_JOINT_NAMES = [
-    "Head_Yaw",
-    "Head_Pitch",
-    "Left_Shoulder_Pitch",
-    "Left_Shoulder_Roll",
-    "Left_Elbow_Pitch",
-    "Left_Elbow_Yaw",
-    "Right_Shoulder_Pitch",
-    "Right_Shoulder_Roll",
-    "Right_Elbow_Pitch",
-    "Right_Elbow_Yaw",
-    "Left_Hip_Pitch",
-    "Left_Hip_Roll",
-    "Left_Hip_Yaw",
-    "Left_Knee_Pitch",
-    "Left_Ankle_Pitch",
-    "Left_Ankle_Roll",
-    "Right_Hip_Pitch",
-    "Right_Hip_Roll",
-    "Right_Hip_Yaw",
-    "Right_Knee_Pitch",
-    "Right_Ankle_Pitch",
-    "Right_Ankle_Roll",
-]
-
-# T1 joint order (23 DOF total): the K1 layout plus a yaw-only waist.
-_T1_JOINT_NAMES = [
-    "AAHead_yaw",
-    "Head_pitch",
-    *_K1_JOINT_NAMES[2:10],
-    "Waist",
-    *_K1_JOINT_NAMES[10:],
-]
-
-# Joints whose axes change sign under a left/right mirror (roll and yaw axes).
-_INVERTED_JOINTS = {
-    "Head_Yaw",
-    "AAHead_yaw",
-    "Waist",
-    *(
-        f"{side}_{joint}"
-        for side in ("Left", "Right")
-        for joint in ("Shoulder_Roll", "Elbow_Yaw", "Hip_Roll", "Hip_Yaw", "Ankle_Roll")
-    ),
-}
-
-
-def _mirror_mapping(joint_names: Sequence[str]) -> tuple[np.ndarray, np.ndarray]:
-    """Index and sign maps that swap each Left_/Right_ joint pair."""
-    name_to_idx = {name: i for i, name in enumerate(joint_names)}
-    index_map = np.array(
-        [name_to_idx[_mirror_body_name(name)] for name in joint_names]
-    )
-    sign_map = np.array(
-        [-1.0 if name in _INVERTED_JOINTS else 1.0 for name in joint_names],
-        dtype=np.float32,
-    )
-    return index_map, sign_map
+if TYPE_CHECKING:
+    from booster_mjlab.robots.mirror import Mirror
 
 
 _MIRROR_MATRIX = np.diag([1.0, -1.0, 1.0])
 
 
-def _mirror_body_name(name: str) -> str:
-    """Return the left/right counterpart of a body name (identity if central)."""
-    # T1 arm links are named AL1..AL3 / AR1..AR3.
-    if re.fullmatch(r"A[LR]\d+", name):
-        return name.translate(str.maketrans("LR", "RL"))
-    for left, right in (("Left", "Right"), ("left", "right")):
-        if left in name:
-            return name.replace(left, right)
-        if right in name:
-            return name.replace(right, left)
-    return name
-
-
-def _body_mirror_index_map(link_body_list: Sequence[Any]) -> np.ndarray:
-    """Permutation over body indices that swaps each left body with its right
-    counterpart (central bodies map to themselves)."""
-    names = [str(n) for n in link_body_list]
-    name_to_idx = {name: i for i, name in enumerate(names)}
-    index_map = np.arange(len(names))
-    for i, name in enumerate(names):
-        partner = _mirror_body_name(name)
-        if partner in name_to_idx:
-            index_map[i] = name_to_idx[partner]
-    return index_map
-
-
-# Motion files carry no joint names, so the robot is identified by its DOF count.
-_MIRROR_MAPS = {
-    len(names): _mirror_mapping(names) for names in (_K1_JOINT_NAMES, _T1_JOINT_NAMES)
-}
+def _resolve_mirror(mirror: Mirror | str) -> Mirror:
+    """Resolve a ``module.path:ATTRIBUTE`` spec into the robot mirror it names."""
+    if not isinstance(mirror, str):
+        return mirror
+    module_path, separator, attribute = mirror.rpartition(":")
+    if not separator:
+        raise ValueError(f"Mirror '{mirror}' must be given as 'module.path:ATTRIBUTE'.")
+    return getattr(importlib.import_module(module_path), attribute)
 
 
 @runtime_checkable
@@ -119,18 +39,23 @@ MotionAugmentationSpec = str | Mapping[str, Any] | MotionAugmentation
 
 @dataclass(frozen=True)
 class MirrorAugmentation:
+    mirror: Mirror
+    """Left/right symmetry of the robot the clips are for; its ``joint_names`` give the
+    ``dof_pos`` column order."""
     name: str = "mirror"
 
     def apply(self, motion_file: MotionFile) -> MotionFile:
         num_dof = motion_file.dof_pos.shape[1]
-        if num_dof not in _MIRROR_MAPS:
+        if num_dof != len(self.mirror.joint_names):
             raise ValueError(
-                "Mirror augmentation expects K1 or T1 DOF ordering with "
-                f"{sorted(_MIRROR_MAPS)} joints, but got {num_dof} joints."
+                f"Mirror augmentation expects {len(self.mirror.joint_names)} joints "
+                f"({self.mirror.joint_names[0]}, ...), but got {num_dof} joints."
             )
-        index_map, sign_map = _MIRROR_MAPS[num_dof]
+        joint_mirror = self.mirror.joint_mirror()
+        sign_map = np.ones(num_dof, dtype=np.float32)
+        sign_map[list(joint_mirror.inverted)] = -1.0
 
-        flipped_dof_pos = motion_file.dof_pos[:, index_map] * sign_map
+        flipped_dof_pos = motion_file.dof_pos[:, list(joint_mirror.perm)] * sign_map
 
         flipped_root_pos = motion_file.root_pos.copy()
         flipped_root_pos[:, 1] = -flipped_root_pos[:, 1]
@@ -149,7 +74,7 @@ class MirrorAugmentation:
         lbp = motion_file.local_body_pos
         names = motion_file.link_body_list
         if lbp is not None and names is not None and len(names) == lbp.shape[1]:
-            body_map = _body_mirror_index_map(names)
+            body_map = self.mirror.body_index_map(names)
             flipped_local_body_pos = lbp[:, body_map, :].copy()
             flipped_local_body_pos[:, :, 1] *= -1.0
 
@@ -267,7 +192,13 @@ def build_motion_augmentations(
             normalized_name = normalized_name[: -len("augmentation")]
 
         if normalized_name in {"mirror", "mirror_lr", "left_right_mirror"}:
-            augmentations.append(MirrorAugmentation())
+            mirror = kwargs.get("mirror")
+            if mirror is None:
+                raise ValueError(
+                    "Mirror augmentation requires 'mirror': the robot's Mirror or a "
+                    "'module.path:ATTRIBUTE' naming it."
+                )
+            augmentations.append(MirrorAugmentation(mirror=_resolve_mirror(mirror)))
             continue
 
         if normalized_name == "speed":

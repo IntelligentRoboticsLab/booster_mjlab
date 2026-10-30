@@ -6,13 +6,12 @@ from mjlab.managers import (
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.tasks.velocity import mdp
 
-from booster_mjlab.amp.config import DEFAULT_AMP_DATASET
 from booster_mjlab.mdp.events import reset_from_pose_pool
 
 
 def with_amp_obs_group(
     cfg,
-    dataset_root: str = DEFAULT_AMP_DATASET,
+    dataset_root: str,
     speed_factor: float = 1.0,
     dataset_weights: list[float] | None = None,
     augmentations: list[dict[str, object]] | None = None,

@@ -1,4 +1,4 @@
-"""Booster K1-specific sensor patterns."""
+"""Foot sensor patterns for the Booster robots."""
 
 from __future__ import annotations
 
@@ -32,9 +32,10 @@ RayAlignment = Literal["base", "yaw", "world"]
 
 @dataclass
 class FootSoleGridPatternCfg:
-    """Sparse rectangular grid matching the K1 foot sole."""
+    """Sparse rectangular grid over a foot sole."""
 
-    size: tuple[float, float] = (0.13, 0.06)
+    size: tuple[float, float]
+    """Extent (x, y) of the sampled sole area, in meters."""
     num_samples: tuple[int, int] = (5, 3)
     direction: tuple[float, float, float] = (0.0, 0.0, -1.0)
 

@@ -60,7 +60,7 @@ class UniformVelocityCommand(_BaseUniformVelocityCommand):
         super()._update_command(env_ids)
         if self.cfg.heading_command and self._yaw_body_id is not None:
             # mjlab steers toward the heading target with the root's heading. Use the yaw body's instead, so twisting
-            # a body above it (the T1 trunk on its waist) toward the target does not zero the yaw command.
+            # a body above it (e.g. a trunk on a waist joint) toward the target does not zero the yaw command.
             data = self.robot.data
             forward_w = quat_apply(
                 data.body_link_quat_w[:, self._yaw_body_id], data.forward_vec_b

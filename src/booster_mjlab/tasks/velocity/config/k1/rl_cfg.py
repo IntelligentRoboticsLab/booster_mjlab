@@ -1,20 +1,23 @@
 """RL configuration for Booster K1 velocity task."""
 
-from mjlab.rl import RslRlModelCfg
-from booster_mjlab.rl.config import (
-    RslRlPpoAlgorithmCfg,
-    RslRlOnPolicyRunnerCfg,
-    RslRlSymmetryCfg,
+from booster_mjlab.amp.runners import AmpOnPolicyRunnerCfg
+from booster_mjlab.rl.config import RslRlOnPolicyRunnerCfg
+from booster_mjlab.robots.booster_k1.k1_constants import K1_MIRROR
+from booster_mjlab.tasks.velocity.config.rl_cfg import (
+    booster_amp_ppo_runner_cfg,
+    booster_ppo_runner_cfg,
 )
-from booster_mjlab.amp.runners import (
-    AmpOnPolicyRunnerCfg,
-    AmpDiscriminatorCfg,
-    AmpRslRlPpoAlgorithmCfg,
-)
+from booster_mjlab.tasks.velocity.mdp.observations import make_augment_symmetries
 
+K1_AMP_DATASET = "whirlwind-ams/lafan_locomotion_k1"
+"""LAFAN1 locomotion clips retargeted to the K1."""
 
-def _experiment_suffix(optimizer: str) -> str:
-    return "" if optimizer == "adam" else f"_{optimizer}"
+K1_MOTION_MIRROR = "booster_mjlab.robots.booster_k1.k1_constants:K1_MIRROR"
+
+augment_symmetries = make_augment_symmetries(K1_MIRROR.joint_mirror())
+"""Left/right symmetry of the serial-ankle K1's observations and actions."""
+
+_AUGMENTATION_FUNC = f"{__name__}:augment_symmetries"
 
 
 def booster_k1_ppo_runner_cfg(optimizer: str = "adam") -> RslRlOnPolicyRunnerCfg:
@@ -23,46 +26,8 @@ def booster_k1_ppo_runner_cfg(optimizer: str = "adam") -> RslRlOnPolicyRunnerCfg
     ``optimizer`` selects the actor/critic optimizer (e.g. ``"muon"``); non-Adam
     optimizers are appended to the experiment name.
     """
-    return RslRlOnPolicyRunnerCfg(
-        actor=RslRlModelCfg(
-            hidden_dims=(512, 256, 128),
-            activation="elu",
-            obs_normalization=True,
-            distribution_cfg={
-                "class_name": "rsl_rl.modules.distribution:GaussianDistribution",
-                "init_std": 1.0,
-            },
-        ),
-        critic=RslRlModelCfg(
-            hidden_dims=(512, 256, 128),
-            activation="elu",
-            obs_normalization=True,
-        ),
-        algorithm=RslRlPpoAlgorithmCfg(
-            optimizer=optimizer,
-            value_loss_coef=1.0,
-            use_clipped_value_loss=True,
-            clip_param=0.2,
-            entropy_coef=0.01,
-            num_learning_epochs=5,
-            num_mini_batches=4,
-            learning_rate=1.0e-3,
-            schedule="adaptive",
-            gamma=0.99,
-            lam=0.95,
-            desired_kl=0.01,
-            max_grad_norm=1.0,
-            # only used to calculate metrics
-            symmetry_cfg=RslRlSymmetryCfg(
-                use_data_augmentation=False,
-                use_mirror_loss=False,
-                data_augmentation_func="booster_mjlab.tasks.velocity.mdp.observations:augment_symmetries",
-            ),
-        ),
-        experiment_name="k1_velocity" + _experiment_suffix(optimizer),
-        save_interval=50,
-        num_steps_per_env=24,
-        max_iterations=30_000,
+    return booster_ppo_runner_cfg(
+        "k1_velocity", _AUGMENTATION_FUNC, optimizer=optimizer
     )
 
 
@@ -70,12 +35,12 @@ def booster_k1_symmetric_ppo_runner_cfg(
     optimizer: str = "adam",
 ) -> RslRlOnPolicyRunnerCfg:
     """PPO runner configuration with symmetry data augmentation."""
-    cfg = booster_k1_ppo_runner_cfg(optimizer=optimizer)
-    cfg.algorithm.symmetry_cfg.use_data_augmentation = True
-    cfg.experiment_name = cfg.experiment_name.replace(
-        "k1_velocity", "k1_velocity_symmetric"
+    return booster_ppo_runner_cfg(
+        "k1_velocity_symmetric",
+        _AUGMENTATION_FUNC,
+        use_data_augmentation=True,
+        optimizer=optimizer,
     )
-    return cfg
 
 
 def booster_k1_amp_ppo_runner_cfg(optimizer: str = "adam") -> AmpOnPolicyRunnerCfg:
@@ -84,55 +49,8 @@ def booster_k1_amp_ppo_runner_cfg(optimizer: str = "adam") -> AmpOnPolicyRunnerC
     ``optimizer`` selects the actor/critic optimizer (e.g. ``"muon"``); the
     discriminator keeps its own optimizer.
     """
-    return AmpOnPolicyRunnerCfg(
-        actor=RslRlModelCfg(
-            hidden_dims=(512, 256, 128),
-            activation="elu",
-            obs_normalization=True,
-            distribution_cfg={
-                "class_name": "rsl_rl.modules.distribution:GaussianDistribution",
-                "init_std": 1.0,
-            },
-        ),
-        critic=RslRlModelCfg(
-            hidden_dims=(512, 256, 128),
-            activation="elu",
-            obs_normalization=True,
-        ),
-        discriminator=AmpDiscriminatorCfg(
-            hidden_layer_sizes=(256, 128),
-            reward_scale=1.0,
-            loss_type="bce",
-            loss_fn_kwargs={},
-        ),
-        algorithm=AmpRslRlPpoAlgorithmCfg(
-            optimizer=optimizer,
-            value_loss_coef=1.0,
-            use_clipped_value_loss=True,
-            clip_param=0.2,
-            entropy_coef=0.01,
-            num_learning_epochs=5,
-            num_mini_batches=4,
-            learning_rate=1.0e-3,
-            schedule="adaptive",
-            gamma=0.99,
-            lam=0.95,
-            desired_kl=0.01,
-            max_grad_norm=1.0,
-        ),
-        experiment_name="k1_velocity_amp" + _experiment_suffix(optimizer),
-        save_interval=50,
-        num_steps_per_env=24,
-        max_iterations=30_000,
-        speed_factor=1.0,
-        dataset_augmentations=[
-            {"name": "mirror"},
-            {"name": "speed", "percent": 10.0},
-            {"name": "speed", "percent": -10.0},
-            {"name": "speed", "percent": 20.0},
-            {"name": "speed", "percent": -20.0},
-        ],
-        style_reward_weight=0.3,
+    return booster_amp_ppo_runner_cfg(
+        "k1_velocity_amp", K1_AMP_DATASET, K1_MOTION_MIRROR, optimizer=optimizer
     )
 
 
@@ -140,13 +58,10 @@ def booster_k1_amp_ppo_symmetric_runner_cfg(
     optimizer: str = "adam",
 ) -> AmpOnPolicyRunnerCfg:
     """AMP runner configuration with symmetry data augmentation."""
-    cfg = booster_k1_amp_ppo_runner_cfg(optimizer=optimizer)
-    cfg.algorithm.symmetry_cfg = RslRlSymmetryCfg(
-        use_data_augmentation=True,
-        use_mirror_loss=False,
-        data_augmentation_func="booster_mjlab.tasks.velocity.mdp.observations:augment_symmetries",
+    return booster_amp_ppo_runner_cfg(
+        "k1_velocity_amp_symmetric",
+        K1_AMP_DATASET,
+        K1_MOTION_MIRROR,
+        data_augmentation_func=_AUGMENTATION_FUNC,
+        optimizer=optimizer,
     )
-    cfg.experiment_name = cfg.experiment_name.replace(
-        "k1_velocity_amp", "k1_velocity_amp_symmetric"
-    )
-    return cfg

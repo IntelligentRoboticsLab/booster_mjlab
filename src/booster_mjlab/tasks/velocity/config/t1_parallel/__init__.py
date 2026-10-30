@@ -4,9 +4,7 @@ from mjlab.tasks.registry import register_mjlab_task
 
 from booster_mjlab.rl.runner import BoosterOnPolicyRunner
 from booster_mjlab.tasks.velocity.config._amp_wrapper import with_amp_obs_group
-from booster_mjlab.tasks.velocity.config.k1_parallel.env_cfgs import (
-    with_parallel_amp_joints,
-)
+from booster_mjlab.tasks.velocity.config.parallel_ankle import with_parallel_amp_joints
 from booster_mjlab.tasks.velocity.rl.runner import VelocityAmpOnPolicyRunner
 
 from .env_cfgs import (

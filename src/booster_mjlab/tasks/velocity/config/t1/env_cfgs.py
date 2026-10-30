@@ -1,21 +1,13 @@
-"""Booster T1 velocity tracking environment configurations.
-
-The T1 shares the K1's body, site and collision geom names, so these configs
-start from the K1 ones and swap in the robot and its size-dependent settings.
-"""
+"""Booster T1 velocity tracking environment configurations."""
 
 from mjlab.envs import ManagerBasedRlEnvCfg
-from mjlab.envs.mdp.actions import JointPositionActionCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 
 from booster_mjlab.robots import T1_ACTION_SCALE, get_t1_robot_cfg
-from booster_mjlab.robots.booster_k1.sensors import (
-    FootClearanceSensorCfg,
-    FootSoleGridPatternCfg,
-)
-from booster_mjlab.tasks.velocity.config.k1.env_cfgs import (
-    booster_k1_flat_env_cfg,
-    booster_k1_rough_env_cfg,
+from booster_mjlab.robots.booster_t1.t1_constants import T1_FOOT_SOLE_SIZE
+from booster_mjlab.tasks.velocity.config.env_cfgs import (
+    booster_rough_env_cfg,
+    to_flat_terrain,
 )
 from booster_mjlab.tasks.velocity.mdp.rewards import (
     track_body_angular_velocity_smoothed,
@@ -24,10 +16,6 @@ from booster_mjlab.tasks.velocity.mdp.velocity_command import UniformVelocityCom
 from booster_mjlab.tasks.velocity.velocity_env_cfg import (
     use_tracking_velocity_curriculum,
 )
-
-# Inner sole contact area. The T1 foot is 0.225 x 0.10 m; this keeps the K1
-# grid's margin to the foot edge.
-T1_FOOT_SOLE_SIZE = (0.16, 0.075)
 
 # Swing foot target. The T1 reference motions swing ~1.3x higher than the K1's
 # (median apex 12.6 vs 9.5 cm), so the K1's 6 cm would reward shuffling.
@@ -61,23 +49,61 @@ T1_AMP_JOINT_NAMES = (
 _T1_HEAD = r".*Head_.*"
 
 
+# Command stages after the shared schedule: faster running, then faster turning in
+# place. high_speed_lin_vel_x keeps vy and yaw small at the new speeds.
+T1_EXTRA_VELOCITY_STAGES = [
+    {
+        "step": 20000 * 24,
+        "lin_vel_x": (-1.5, 2.00),
+        "lin_vel_y": (-1.75, 1.75),
+        "ang_vel_z": (-1.5, 1.5),
+    },
+    {
+        "step": 25000 * 24,
+        "lin_vel_x": (-1.5, 2.50),
+        "lin_vel_y": (-1.75, 1.75),
+        "ang_vel_z": (-1.5, 1.5),
+    },
+    {
+        "step": 30000 * 24,
+        "lin_vel_x": (-1.5, 2.75),
+        "lin_vel_y": (-1.75, 1.75),
+        "ang_vel_z": (-1.5, 1.5),
+        "turning_ang_vel_z": (-2.0, 2.0),
+    },
+    {
+        "step": 33000 * 24,
+        "lin_vel_x": (-1.5, 3.0),
+        "lin_vel_y": (-1.75, 1.75),
+        "ang_vel_z": (-1.5, 1.5),
+        "turning_ang_vel_z": (-2.5, 2.5),
+    },
+]
+
+
+def _t1_rough_env_cfg(play: bool) -> ManagerBasedRlEnvCfg:
+    return booster_rough_env_cfg(
+        get_t1_robot_cfg(), T1_ACTION_SCALE, T1_FOOT_SOLE_SIZE, play=play
+    )
+
+
 def make_t1_cfg(cfg: ManagerBasedRlEnvCfg) -> ManagerBasedRlEnvCfg:
-    """Convert a K1 velocity config to the T1."""
-    cfg.scene.entities = {"robot": get_t1_robot_cfg()}
-
-    joint_pos_action = cfg.actions["joint_pos"]
-    assert isinstance(joint_pos_action, JointPositionActionCfg)
-    joint_pos_action.scale = T1_ACTION_SCALE
-
-    for sensor in cfg.scene.sensors:
-        if isinstance(sensor, FootClearanceSensorCfg):
-            sensor.pattern = FootSoleGridPatternCfg(size=T1_FOOT_SOLE_SIZE)
-
+    """Apply the T1's command, reward and curriculum settings to a Booster velocity config."""
     assert cfg.commands is not None
     twist_cmd = cfg.commands["twist"]
     assert isinstance(twist_cmd, UniformVelocityCommandCfg)
     # Keep the command arrows above the head of the taller robot.
     twist_cmd.viz.z_offset = 1.45
+
+    twist_cmd.resampling_time_range = (3.0, 8.0)
+    twist_cmd.rel_forward_envs = 0.0
+    twist_cmd.motion_aligned_command_prob = 0.3
+    twist_cmd.rel_turning_envs = 0.15
+    twist_cmd.rel_slow_envs = 0.15
+    # From 2 m/s the command is near-pure forward: only gentle curves and little sidestep.
+    twist_cmd.high_speed_lin_vel_x = 2.0
+    twist_cmd.high_speed_lin_vel_y = 0.5
+    twist_cmd.high_speed_ang_vel_z = 0.5
 
     # The trunk sits above the yaw-only waist, so tracking yaw on it lets a waist twist stand in
     # for turning (e.g. on turn-in-place commands). Track on the pelvis so the legs must turn,
@@ -96,6 +122,8 @@ def make_t1_cfg(cfg: ManagerBasedRlEnvCfg) -> ManagerBasedRlEnvCfg:
     # Runs 9dzo12dm and u5golm2n shuffled (0.04 m peak foot height, 0.15 s air time) with
     # air_time earning under half of its 0.1 weight.
     cfg.rewards["air_time"].weight = 0.3
+    # Low enough that slow walking commands (from 0.1 m/s) are still rewarded for stepping.
+    cfg.rewards["air_time"].params["command_threshold"] = 0.05
 
     # The posture penalty only keeps the head still: the arms follow the style
     # reward (T1_AMP_JOINT_NAMES) instead of being pulled to the default pose.
@@ -104,17 +132,32 @@ def make_t1_cfg(cfg: ManagerBasedRlEnvCfg) -> ManagerBasedRlEnvCfg:
     for regime in ("std_standing", "std_walking", "std_running"):
         posture[regime] = {_T1_HEAD: posture[regime][r"Head_.*"]}
 
+    assert cfg.curriculum is not None
+    cfg.curriculum["command_vel"].params["velocity_stages"].extend(
+        T1_EXTRA_VELOCITY_STAGES
+    )
     return use_tracking_velocity_curriculum(cfg, T1_TRACKING_CURRICULUM_THRESHOLD)
 
 
 def booster_t1_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     """Create Booster T1 rough terrain velocity tracking configuration."""
-    return make_t1_cfg(booster_k1_rough_env_cfg(play=play))
+    return make_t1_cfg(_t1_rough_env_cfg(play=play))
 
 
 def booster_t1_flat_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     """Create Booster T1 flat terrain velocity tracking configuration."""
-    return make_t1_cfg(booster_k1_flat_env_cfg(play=play))
+    cfg = make_t1_cfg(to_flat_terrain(_t1_rough_env_cfg(play=play)))
+
+    if play:
+        assert cfg.commands is not None
+        twist_cmd = cfg.commands["twist"]
+        assert isinstance(twist_cmd, UniformVelocityCommandCfg)
+
+        twist_cmd.ranges.lin_vel_x = (-2.5, 3.0)
+        twist_cmd.ranges.lin_vel_y = (-2.0, 2.0)
+        twist_cmd.ranges.ang_vel_z = (-3.7, 3.7)
+
+    return cfg
 
 
 T1_ACTOR_HISTORY_LEN = 10

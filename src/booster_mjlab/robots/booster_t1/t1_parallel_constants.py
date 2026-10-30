@@ -21,22 +21,19 @@ from mjlab.entity.entity import EntityArticulationInfoCfg
 from mjlab.utils.spec_config import CollisionCfg
 
 from booster_mjlab import BOOSTER_MJLAB_SRC_PATH
-from booster_mjlab.robots.booster_k1.k1_constants import (
-    FULL_COLLISION,
-    _actuator_cfg,
-    _build_action_scale,
-)
-from booster_mjlab.robots.booster_k1.parallel_ankle_ik import (
-    LINKAGE_JOINT_SUFFIXES,
-    AnkleGeometry,
-    _Linkage,
-    solve_leg,
-)
+from booster_mjlab.robots.actuators import actuator_cfg, build_action_scale
 from booster_mjlab.robots.booster_t1 import t1_constants as serial
 from booster_mjlab.robots.booster_t1.t1_constants import (
     ACTUATOR_E4315,
     T1_ARM_HEAD_ACTUATORS,
     T1_LEG_WAIST_ACTUATORS,
+)
+from booster_mjlab.robots.collisions import FULL_COLLISION
+from booster_mjlab.robots.parallel_ankle_ik import (
+    LINKAGE_JOINT_SUFFIXES,
+    AnkleGeometry,
+    Linkage,
+    solve_leg,
 )
 
 if TYPE_CHECKING:
@@ -69,13 +66,13 @@ def _rod(pivot: np.ndarray, arm: np.ndarray, anchor: np.ndarray) -> np.ndarray:
 T1_ANKLE = AnkleGeometry(
     origin=_ANKLE_ORIGIN,
     foot_offset=_FOOT_OFFSET,
-    linkage_a=_Linkage(
+    linkage_a=Linkage(
         _CRANK_A_PIVOT,
         _CRANK_A_ARM,
         _rod(_CRANK_A_PIVOT, _CRANK_A_ARM, _ANCHOR_A),
         _ANCHOR_A,
     ),
-    linkage_b=_Linkage(
+    linkage_b=Linkage(
         _CRANK_B_PIVOT,
         _CRANK_B_ARM,
         _rod(_CRANK_B_PIVOT, _CRANK_B_ARM, _ANCHOR_B),
@@ -216,7 +213,7 @@ ACTUATOR_T1_ANKLE_DRIVE = ACTUATOR_E4315
 
 _ANKLE_DRIVE_NAMES = (r".*_Ankle_A", r".*_Ankle_B")
 
-T1_ACTUATOR_ANKLE_DRIVE = _actuator_cfg(_ANKLE_DRIVE_NAMES, ACTUATOR_T1_ANKLE_DRIVE)
+T1_ACTUATOR_ANKLE_DRIVE = actuator_cfg(_ANKLE_DRIVE_NAMES, ACTUATOR_T1_ANKLE_DRIVE)
 
 T1_PARALLEL_ARTICULATION = EntityArticulationInfoCfg(
     actuators=(
@@ -227,7 +224,7 @@ T1_PARALLEL_ARTICULATION = EntityArticulationInfoCfg(
     soft_joint_pos_limit_factor=0.9,
 )
 
-T1_PARALLEL_ACTION_SCALE = _build_action_scale(T1_PARALLEL_ARTICULATION)
+T1_PARALLEL_ACTION_SCALE = build_action_scale(T1_PARALLEL_ARTICULATION)
 
 
 ##

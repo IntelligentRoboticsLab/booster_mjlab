@@ -22,10 +22,7 @@ from mjlab.sim import MujocoCfg, SimulationCfg
 from mjlab.tasks.velocity import mdp
 
 from booster_mjlab.mdp.terrain import randomize_terrain_contact
-from booster_mjlab.tasks.velocity.mdp.curriculums import (
-    commands_vel as booster_mjlab_commands_vel,
-    commands_vel_by_tracking,
-)
+from booster_mjlab.tasks.velocity.mdp.curriculums import commands_vel_by_tracking
 from booster_mjlab.tasks.velocity.mdp.rewards import (
     standing_pose_deviation_l1,
     track_linear_velocity as booster_mjlab_track_linear_velocity,
@@ -171,13 +168,13 @@ def make_velocity_env_cfg() -> ManagerBasedRlEnvCfg:
     commands: dict[str, CommandTermCfg] = {
         "twist": UniformVelocityCommandCfg(
             entity_name="robot",
-            resampling_time_range=(3.0, 8.0),
+            resampling_time_range=(1.0, 4.0),
             rel_standing_envs=0.1,
             rel_heading_envs=0.3,
+            rel_forward_envs=0.1,
             heading_command=True,
             heading_control_stiffness=0.5,
             debug_vis=True,
-            motion_aligned_command_prob=0.3,
             ranges=UniformVelocityCommandCfg.Ranges(
                 lin_vel_x=(-0.5, 0.5),
                 lin_vel_y=(-0.5, 0.5),
@@ -362,8 +359,7 @@ def make_velocity_env_cfg() -> ManagerBasedRlEnvCfg:
                 "threshold_min": 0.05,
                 "threshold_max": 0.5,
                 "command_name": "twist",
-                # Low enough that slow walking commands (from 0.1 m/s) are still rewarded for stepping.
-                "command_threshold": 0.05,
+                "command_threshold": 0.2,
             },
         ),
         "foot_clearance": RewardTermCfg(
@@ -484,7 +480,7 @@ def make_velocity_env_cfg() -> ManagerBasedRlEnvCfg:
             },
         ),
         "command_vel": CurriculumTermCfg(
-            func=booster_mjlab_commands_vel,
+            func=mdp.commands_vel,
             params={
                 "command_name": "twist",
                 "velocity_stages": [
@@ -511,34 +507,6 @@ def make_velocity_env_cfg() -> ManagerBasedRlEnvCfg:
                         "lin_vel_x": (-1.5, 1.75),
                         "lin_vel_y": (-1.75, 1.75),
                         "ang_vel_z": (-1.5, 1.5),
-                    },
-                    {
-                        "step": 20000 * 24,
-                        "lin_vel_x": (-1.5, 2.00),
-                        "lin_vel_y": (-1.75, 1.75),
-                        "ang_vel_z": (-1.5, 1.5),
-                    },
-                    {
-                        "step": 25000 * 24,
-                        "lin_vel_x": (-1.5, 2.50),
-                        "lin_vel_y": (-1.75, 1.75),
-                        "ang_vel_z": (-1.5, 1.5),
-                    },
-                    # Continuation past 30k iterations: faster running and faster turning in place. Robots set
-                    # high_speed_lin_vel_x to keep vy and yaw small at the new speeds.
-                    {
-                        "step": 30000 * 24,
-                        "lin_vel_x": (-1.5, 2.75),
-                        "lin_vel_y": (-1.75, 1.75),
-                        "ang_vel_z": (-1.5, 1.5),
-                        "turning_ang_vel_z": (-2.0, 2.0),
-                    },
-                    {
-                        "step": 33000 * 24,
-                        "lin_vel_x": (-1.5, 3.0),
-                        "lin_vel_y": (-1.75, 1.75),
-                        "ang_vel_z": (-1.5, 1.5),
-                        "turning_ang_vel_z": (-2.5, 2.5),
                     },
                 ],
             },
