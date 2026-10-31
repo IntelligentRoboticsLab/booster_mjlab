@@ -54,34 +54,20 @@ def make_t1_cfg(cfg: ManagerBasedRlEnvCfg) -> ManagerBasedRlEnvCfg:
     # Keep the command arrows above the head of the taller robot.
     twist_cmd.viz.z_offset = 1.45
 
-    twist_cmd.resampling_time_range = (3.0, 8.0)
-    twist_cmd.rel_forward_envs = 0.0
-    twist_cmd.motion_aligned_command_prob = 0.3
-    twist_cmd.rel_turning_envs = 0.15
-    twist_cmd.rel_slow_envs = 0.15
-    # From 2 m/s the command is near-pure forward: only gentle curves and little sidestep.
-    twist_cmd.high_speed_lin_vel_x = 2.0
-    twist_cmd.high_speed_lin_vel_y = 0.5
-    twist_cmd.high_speed_ang_vel_z = 0.5
-
     # The trunk sits above the yaw-only waist, so tracking yaw on it lets a waist twist stand in
-    # for turning (e.g. on turn-in-place commands). Track on the pelvis so the legs must turn,
-    # low-passed so the pelvis's in-stride yaw swing is not penalized.
+    # for turning. Track on the pelvis so the legs must turn, low-passed so the pelvis's in-stride
+    # yaw swing is not penalized.
     track_yaw = cfg.rewards["track_angular_velocity"]
     track_yaw.func = track_body_angular_velocity_smoothed
     track_yaw.params["asset_cfg"] = SceneEntityCfg("robot", body_names=("Waist",))
     track_yaw.params["yaw_time_constant"] = T1_YAW_RATE_TIME_CONSTANT
-    # Steer heading commands by the pelvis and report the yaw error on it, not on the root
-    # (Trunk) that the waist swings.
-    twist_cmd.yaw_body_name = "Waist"
-    twist_cmd.yaw_rate_time_constant = T1_YAW_RATE_TIME_CONSTANT
 
     for reward_name in ("foot_clearance", "foot_swing_height"):
         cfg.rewards[reward_name].params["target_height"] = T1_TARGET_FOOT_HEIGHT
     # Runs 9dzo12dm and u5golm2n shuffled (0.04 m peak foot height, 0.15 s air time) with
     # air_time earning under half of its 0.1 weight.
     cfg.rewards["air_time"].weight = 0.3
-    # Low enough that slow walking commands (from 0.1 m/s) are still rewarded for stepping.
+    # Low enough that slow walking commands are still rewarded for stepping.
     cfg.rewards["air_time"].params["command_threshold"] = 0.05
 
     # The posture penalty only keeps the head still: the arms follow the style
@@ -108,7 +94,7 @@ def booster_t1_flat_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
         twist_cmd = cfg.commands["twist"]
         assert isinstance(twist_cmd, UniformVelocityCommandCfg)
 
-        twist_cmd.ranges.lin_vel_x = (-2.5, 3.0)
+        twist_cmd.ranges.lin_vel_x = (-2.5, 2.5)
         twist_cmd.ranges.lin_vel_y = (-2.0, 2.0)
         twist_cmd.ranges.ang_vel_z = (-3.7, 3.7)
 
