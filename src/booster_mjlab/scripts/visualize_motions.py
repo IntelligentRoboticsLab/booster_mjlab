@@ -7,7 +7,7 @@ import pickle
 import threading
 import time
 from dataclasses import dataclass
-from functools import cached_property
+from functools import cached_property, partial
 from pathlib import Path
 from typing import Any, Callable
 
@@ -30,9 +30,9 @@ from booster_mjlab.motion import (
     SpeedModifierAugmentation,
     is_hf_dataset_id,
 )
-from booster_mjlab.robots.booster_k1.k1_parallel_constants import (
-    K1_PARALLEL_JOINT_ORDER,
-)
+from booster_mjlab.robots import MIRRORS, PARALLEL_LAYOUTS
+from booster_mjlab.robots.mirror import Mirror
+from booster_mjlab.robots.parallel_retarget import ParallelLayout, to_parallel
 from mjlab.envs.manager_based_rl_env import ManagerBasedRlEnvCfg
 from mjlab.scene import Scene
 from mjlab.sim.sim import Simulation
@@ -429,14 +429,46 @@ def resolve_body_id(model: mujoco.MjModel, body_name: str) -> int | None:
     return None
 
 
-def joint_layout_transform(mj_model) -> MotionTransform | None:
-    """Retarget clips onto the task's layout when it isn't the serial K1 one."""
-    if mj_model.nq - 7 != len(K1_PARALLEL_JOINT_ORDER):
+def _robot_joint_names(mj_model: mujoco.MjModel) -> tuple[str, ...]:
+    """The model's non-free joints in qpos order, without the entity prefix."""
+    return tuple(
+        mj_model.joint(j).name.split("/")[-1]
+        for j in range(mj_model.njnt)
+        if mj_model.jnt_type[j] != mujoco.mjtJoint.mjJNT_FREE
+    )
+
+
+def _parallel_layout(mj_model: mujoco.MjModel) -> ParallelLayout | None:
+    """The parallel-ankle layout the task's model uses, if any."""
+    joint_names = _robot_joint_names(mj_model)
+    return next(
+        (
+            layout
+            for layout in PARALLEL_LAYOUTS
+            if layout.parallel_joints == joint_names
+        ),
+        None,
+    )
+
+
+def joint_layout_transform(mj_model: mujoco.MjModel) -> MotionTransform | None:
+    """Retarget serial clips onto the task's layout when it is a parallel-ankle model."""
+    layout = _parallel_layout(mj_model)
+    if layout is None:
         return None
+    return partial(to_parallel, layout=layout)
 
-    from booster_mjlab.robots.booster_k1.parallel_retarget import to_parallel
 
-    return to_parallel
+def robot_mirror(mj_model: mujoco.MjModel) -> Mirror:
+    """Mirror of the robot in the task's model, over the serial layout clips are stored in."""
+    layout = _parallel_layout(mj_model)
+    serial_joints = (
+        layout.serial_joints if layout is not None else _robot_joint_names(mj_model)
+    )
+    for mirror in MIRRORS:
+        if mirror.joint_names == serial_joints:
+            return mirror
+    raise ValueError(f"No robot mirror for joints {serial_joints}")
 
 
 def load_motion_clip(
@@ -579,16 +611,17 @@ def apply_speed_modification(motion_file: MotionFile, factor: float) -> MotionFi
     return SpeedModifierAugmentation(factor=factor).apply(motion_file)
 
 
-def apply_mirror(motion_file: MotionFile) -> MotionFile:
-    """Mirror motion file left-to-right for K1 robot.
+def apply_mirror(motion_file: MotionFile, mirror: Mirror) -> MotionFile:
+    """Mirror motion file left-to-right.
 
     Args:
         motion_file: Input motion file
+        mirror: Left/right symmetry of the robot the clip is for
 
     Returns:
         Mirrored motion file
     """
-    return MirrorAugmentation().apply(motion_file)
+    return MirrorAugmentation(mirror=mirror).apply(motion_file)
 
 
 def apply_root_offset(
@@ -898,7 +931,9 @@ def compile_edits(
 
     # 3. Apply mirror
     if edit_state.mirrored:
-        result = apply_mirror(result)
+        if mj_model is None:
+            raise ValueError("Mirroring needs the task's model to identify the robot")
+        result = apply_mirror(result, robot_mirror(mj_model))
 
     # 4. Apply root offset
     if np.any(np.abs(edit_state.root_position_offset) > 1e-6) or np.any(
@@ -1357,11 +1392,11 @@ def setup_viewer(
             mirror_checkbox = server.gui.add_checkbox(
                 "Enable Mirror",
                 initial_value=edit_state.mirrored,
-                hint="Swap left/right limbs (K1 robot)",
+                hint="Swap left/right limbs",
             )
             mirror_info = server.gui.add_html(
                 """<div style="font-size:0.8em; padding:0 0.5em;">
-                Mirrors left/right limbs for K1 robot.<br/>
+                Mirrors left/right limbs.<br/>
                 Root Y position will be negated.
                 </div>"""
             )

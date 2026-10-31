@@ -21,3 +21,6 @@ logs/
 .ruff_cache/
 
 .vscode/
+
+# Rendered motion videos
+renders/

@@ -7,7 +7,7 @@ import time
 import torch
 from mjlab.rl import MjlabOnPolicyRunner
 
-from booster_mjlab.amp.config import DEFAULT_AMP_DATASET, AmpDiscriminatorCfg
+from booster_mjlab.amp.config import AmpDiscriminatorCfg
 from booster_mjlab.amp.runners.amp_support import AmpRunner
 from booster_mjlab.rl import (
     RslRlOnPolicyRunnerCfg,
@@ -30,8 +30,8 @@ class AmpRslRlPpoAlgorithmCfg(RslRlPpoAlgorithmCfg):
 class AmpOnPolicyRunnerCfg(RslRlOnPolicyRunnerCfg):
     """Configuration for the AMP on-policy runner."""
 
-    dataset_root: str = DEFAULT_AMP_DATASET
-    """Local motion path or Hugging Face dataset ID (``namespace/repo``)."""
+    dataset_root: str = field(kw_only=True)
+    """Local motion path or Hugging Face dataset ID (``namespace/repo``) of the robot's motions."""
     warm_start: bool = False
     """With ``resume``, load only the actor, critic and discriminator weights from the checkpoint.
 

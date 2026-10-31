@@ -6,27 +6,31 @@ from mjlab.managers import (
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.tasks.velocity import mdp
 
-from booster_mjlab.amp.config import DEFAULT_AMP_DATASET
 from booster_mjlab.mdp.events import reset_from_pose_pool
 
 
 def with_amp_obs_group(
     cfg,
-    dataset_root: str = DEFAULT_AMP_DATASET,
+    dataset_root: str,
     speed_factor: float = 1.0,
     dataset_weights: list[float] | None = None,
     augmentations: list[dict[str, object]] | None = None,
     dataset_transform: str | None = None,
     include_base_lin_vel: bool = False,
+    amp_joint_names: tuple[str, ...] | None = None,
 ):
-    """Wraps the environment configuration for AMP tasks."""
-    # Discriminator features cover the legs only; the arms and head are excluded
-    # so their style from the dataset does not drive the style reward.
-    amp_joint_names = (
-        r".*_Hip_.*",
-        r".*_Knee_.*",
-        r".*_Ankle_.*",
-    )
+    """Wraps the environment configuration for AMP tasks.
+
+    ``amp_joint_names`` selects the joints the discriminator sees (regexes); defaults to the legs only.
+    """
+    # By default the discriminator features cover the legs only; the arms and head
+    # are excluded so their style from the dataset does not drive the style reward.
+    if amp_joint_names is None:
+        amp_joint_names = (
+            r".*_Hip_.*",
+            r".*_Knee_.*",
+            r".*_Ankle_.*",
+        )
 
     # Term order must match the expert layout in the motion loader:
     # [joint_pos, joint_vel, (base_lin_vel), (base_ang_vel), (projected_gravity)]. The loader selects each optional

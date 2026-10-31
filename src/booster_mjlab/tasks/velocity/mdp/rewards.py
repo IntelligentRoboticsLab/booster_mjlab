@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 import torch
 
 from mjlab.entity import Entity
+from mjlab.managers.manager_base import ManagerTermBase
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.utils.lab_api.math import quat_apply_inverse
@@ -15,6 +16,77 @@ if TYPE_CHECKING:
 
 
 _DEFAULT_ASSET_CFG = SceneEntityCfg("robot")
+
+
+def track_body_angular_velocity(
+    env: "ManagerBasedRlEnv",
+    std: float,
+    command_name: str,
+    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+    """mjlab's track_angular_velocity, measured on ``asset_cfg``'s body instead of the root.
+
+    For robots with a waist yaw joint below the root, tracking on the pelvis makes turning come
+    from the legs: on the root, the waist alone can produce the commanded yaw rate.
+    """
+    asset: Entity = env.scene[asset_cfg.name]
+    command = env.command_manager.get_command(command_name)
+    assert command is not None, f"Command '{command_name}' not found."
+    body_id = asset_cfg.body_ids[0]
+    actual = quat_apply_inverse(
+        asset.data.body_link_quat_w[:, body_id],
+        asset.data.body_link_ang_vel_w[:, body_id],
+    )
+    z_error = torch.square(command[:, 2] - actual[:, 2])
+    xy_error = torch.sum(torch.square(actual[:, :2]), dim=1)
+    return torch.exp(-(z_error + xy_error) / std**2)
+
+
+class track_body_angular_velocity_smoothed(ManagerTermBase):
+    """track_body_angular_velocity with the body's yaw rate low-passed before it is compared to the command.
+
+    A walking humanoid's pelvis yaws back and forth within each stride, more than the trunk above a waist joint
+    does. Tracking the pelvis's instantaneous yaw rate therefore penalizes the hip rotation the style reward asks
+    for. A first-order low-pass with time constant ``yaw_time_constant`` damps that oscillation, and lags the
+    command by about that time. The measured body stays the pelvis, so the waist still cannot stand in for turning.
+    Roll and pitch rates are penalized unfiltered.
+    """
+
+    def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
+        super().__init__(env)
+        self._yaw_rate = torch.zeros(env.num_envs, device=env.device)
+        # The filter restarts from the body's own yaw rate on the first step of an episode.
+        self._seeded = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+
+    def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
+        self._seeded[slice(None) if env_ids is None else env_ids] = False
+
+    def __call__(
+        self,
+        env: ManagerBasedRlEnv,
+        std: float,
+        command_name: str,
+        yaw_time_constant: float,
+        asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+    ) -> torch.Tensor:
+        asset: Entity = env.scene[asset_cfg.name]
+        command = env.command_manager.get_command(command_name)
+        assert command is not None, f"Command '{command_name}' not found."
+        body_id = asset_cfg.body_ids[0]
+        actual = quat_apply_inverse(
+            asset.data.body_link_quat_w[:, body_id],
+            asset.data.body_link_ang_vel_w[:, body_id],
+        )
+        alpha = env.step_dt / (yaw_time_constant + env.step_dt)
+        self._yaw_rate = torch.where(
+            self._seeded,
+            self._yaw_rate + alpha * (actual[:, 2] - self._yaw_rate),
+            actual[:, 2],
+        )
+        self._seeded[:] = True
+        z_error = torch.square(command[:, 2] - self._yaw_rate)
+        xy_error = torch.sum(torch.square(actual[:, :2]), dim=1)
+        return torch.exp(-(z_error + xy_error) / std**2)
 
 
 def track_linear_velocity(

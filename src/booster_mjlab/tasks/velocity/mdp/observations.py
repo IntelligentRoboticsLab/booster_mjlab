@@ -1,43 +1,37 @@
 from __future__ import annotations
 
-from functools import partial
+from collections.abc import Callable
 
 from rsl_rl.env import VecEnv
 from tensordict import TensorDict
 
 import torch
 
-K1_JOINT_DIM = 22
-K1_ACTION_DIM = 22
+from booster_mjlab.robots.mirror import JointMirror
 
-# Joint slots whose axes change sign under a left/right mirror.
-K1_INVERTED_JOINT_INDICES: tuple[int, ...] = (
-    0,
-    3,
-    5,
-    7,
-    9,
-    11,
-    12,
-    15,
-    17,
-    18,
-    21,
-)
-
-# The parallel ankle's A/B crank axes both point along +y. Unlike serial ankle
-# roll, neither crank changes sign under a left/right mirror.
-K1_PARALLEL_INVERTED_JOINT_INDICES: tuple[int, ...] = tuple(
-    index for index in K1_INVERTED_JOINT_INDICES if index not in (15, 21)
-)
-POLICY_DIM_NO_BASE_LIN_VEL = 75
 CRITIC_EXTRA_DIM = 15
+
+
+def _policy_dim(mirror: JointMirror) -> int:
+    """Actor observation width for a robot with ``len(mirror.perm)`` joints.
+
+    Layout is:
+    [base_ang_vel(3), projected_gravity(3), joint_pos(J), joint_vel(J),
+     last_action(J), command(3)]
+    """
+    return sum(_policy_term_dims(mirror))
+
+
+def _policy_term_dims(mirror: JointMirror) -> tuple[int, ...]:
+    """Widths of the actor observation terms, in order (see ``_policy_dim``)."""
+    num_joints = len(mirror.perm)
+    return (3, 3, num_joints, num_joints, num_joints, 3)
 
 
 def _augment_symmetries(
     obs: TensorDict | None,
     actions: torch.Tensor | None,
-    inverted_indices: tuple[int, ...],
+    mirror: JointMirror,
 ) -> tuple[TensorDict | None, torch.Tensor | None]:
     """Apply symmetry augmentations to observations and actions."""
 
@@ -46,12 +40,14 @@ def _augment_symmetries(
         critic_obs = obs["critic"]
         actor_dim = actor_obs.shape[1]
         critic_dim = critic_obs.shape[1]
-        if not _is_supported_policy_dim(actor_dim):
+        policy_dim = _policy_dim(mirror)
+        if actor_dim % policy_dim != 0:
             raise ValueError(
                 f"Unsupported actor observation dim: {actor_dim}. "
-                f"Expected one of {SUPPORTED_POLICY_DIMS}."
+                f"Expected a multiple of {policy_dim} (one per history frame)."
             )
-        expected_critic_dim = actor_dim + CRITIC_EXTRA_DIM
+        # The critic never stacks history.
+        expected_critic_dim = policy_dim + CRITIC_EXTRA_DIM
         if critic_dim != expected_critic_dim:
             raise ValueError(
                 f"Critic observation dim mismatch: got {critic_dim}, "
@@ -63,26 +59,23 @@ def _augment_symmetries(
         # augment the batch size to 2 different symmetries
         actor_aug = torch.zeros(n_envs * 2, actor_obs.shape[1], device=actor_obs.device)
         actor_aug[:n_envs] = actor_obs
-        actor_aug[n_envs : 2 * n_envs] = flip_k1_policy_obs_left_right(
-            actor_obs, inverted_indices
-        )
+        actor_aug[n_envs : 2 * n_envs] = flip_actor_obs_left_right(actor_obs, mirror)
 
         critic_aug = torch.zeros(
             n_envs * 2, critic_obs.shape[1], device=critic_obs.device
         )
         critic_aug[:n_envs] = critic_obs
-        critic_aug[n_envs : 2 * n_envs] = flip_k1_critic_obs_left_right(
-            critic_obs, inverted_indices
-        )
+        critic_aug[n_envs : 2 * n_envs] = flip_critic_obs_left_right(critic_obs, mirror)
 
         obs = TensorDict(
             {"actor": actor_aug, "critic": critic_aug}, batch_size=(n_envs * 2,)
         )
 
     if actions is not None:
-        if actions.shape[1] != K1_ACTION_DIM:
+        if actions.shape[1] != len(mirror.perm):
             raise ValueError(
-                f"Unsupported action dim: {actions.shape[1]}. Expected {K1_ACTION_DIM}."
+                f"Unsupported action dim: {actions.shape[1]}. "
+                f"Expected {len(mirror.perm)}."
             )
 
         n_envs = actions.shape[0]
@@ -90,53 +83,51 @@ def _augment_symmetries(
         # augment the batch size to 2 different symmetries
         actions_aug = torch.zeros(n_envs * 2, actions.shape[1], device=actions.device)
         actions_aug[:n_envs] = actions[:]
-        actions_aug[n_envs : 2 * n_envs] = flip_k1_action_left_right(
-            actions, inverted_indices
-        )
+        actions_aug[n_envs : 2 * n_envs] = flip_action_left_right(actions, mirror)
 
         actions = actions_aug
 
     return obs, actions
 
 
-def augment_symmetries(
-    env: VecEnv, obs: TensorDict | None, actions: torch.Tensor | None
-) -> tuple[TensorDict | None, torch.Tensor | None]:
-    """Apply left/right symmetry for the serial-ankle K1."""
-    del env
-    return _augment_symmetries(obs, actions, K1_INVERTED_JOINT_INDICES)
+AugmentSymmetries = Callable[
+    [VecEnv, TensorDict | None, torch.Tensor | None],
+    tuple[TensorDict | None, torch.Tensor | None],
+]
 
 
-def augment_symmetries_parallel(
-    env: VecEnv, obs: TensorDict | None, actions: torch.Tensor | None
-) -> tuple[TensorDict | None, torch.Tensor | None]:
-    """Apply left/right symmetry for the parallel-ankle K1."""
-    del env
-    return _augment_symmetries(obs, actions, K1_PARALLEL_INVERTED_JOINT_INDICES)
+def make_augment_symmetries(mirror: JointMirror) -> AugmentSymmetries:
+    """rsl_rl ``data_augmentation_func`` applying left/right symmetry with ``mirror``.
+
+    ``mirror`` must be ordered like the policy's joint observations and actions.
+    """
+
+    def augment_symmetries(
+        env: VecEnv, obs: TensorDict | None, actions: torch.Tensor | None
+    ) -> tuple[TensorDict | None, torch.Tensor | None]:
+        del env
+        return _augment_symmetries(obs, actions, mirror)
+
+    return augment_symmetries
 
 
-def flip_k1_action_left_right(
-    action: torch.Tensor,
-    inverted_indices: tuple[int, ...] = K1_INVERTED_JOINT_INDICES,
-) -> torch.Tensor:
+def flip_action_left_right(action: torch.Tensor, mirror: JointMirror) -> torch.Tensor:
     action = action.clone()
     # switch left and right joints
-    action = _switch_k1_joints_left_right(action, inverted_indices)
+    action = _switch_joints_left_right(action, mirror)
     return action
 
 
-def flip_k1_policy_obs_left_right(
-    obs: torch.Tensor,
-    inverted_indices: tuple[int, ...] = K1_INVERTED_JOINT_INDICES,
-) -> torch.Tensor:
+def flip_policy_obs_left_right(obs: torch.Tensor, mirror: JointMirror) -> torch.Tensor:
     obs = obs.clone()
     policy_dim = obs.shape[1]
-    num_linear_obs_blocks = _get_num_linear_obs_blocks(policy_dim)
+    num_linear_obs_blocks = _get_num_linear_obs_blocks(policy_dim, mirror)
     if num_linear_obs_blocks is None:
         raise ValueError(
             f"Unsupported policy observation dim: {policy_dim}. "
-            f"Expected one of {SUPPORTED_POLICY_DIMS}."
+            f"Expected {_policy_dim(mirror)}."
         )
+    num_joints = len(mirror.perm)
 
     # No leading base linear terms in the current velocity policy layout.
     # Each 3D vector mirrors with [x, y, z] -> [x, -y, z].
@@ -158,21 +149,21 @@ def flip_k1_policy_obs_left_right(
     ] * obs.new_tensor([1.0, -1.0, 1.0])
 
     joint_pos_start = base_offset + 6
-    joint_vel_start = joint_pos_start + K1_JOINT_DIM
-    last_actions_start = joint_vel_start + K1_JOINT_DIM
-    command_start = last_actions_start + K1_ACTION_DIM
+    joint_vel_start = joint_pos_start + num_joints
+    last_actions_start = joint_vel_start + num_joints
+    command_start = last_actions_start + num_joints
 
     # joint pos
-    obs[:, joint_pos_start:joint_vel_start] = _switch_k1_joints_left_right(
-        obs[:, joint_pos_start:joint_vel_start], inverted_indices
+    obs[:, joint_pos_start:joint_vel_start] = _switch_joints_left_right(
+        obs[:, joint_pos_start:joint_vel_start], mirror
     )
     # joint vel
-    obs[:, joint_vel_start:last_actions_start] = _switch_k1_joints_left_right(
-        obs[:, joint_vel_start:last_actions_start], inverted_indices
+    obs[:, joint_vel_start:last_actions_start] = _switch_joints_left_right(
+        obs[:, joint_vel_start:last_actions_start], mirror
     )
     # last actions
-    obs[:, last_actions_start:command_start] = _switch_k1_joints_left_right(
-        obs[:, last_actions_start:command_start], inverted_indices
+    obs[:, last_actions_start:command_start] = _switch_joints_left_right(
+        obs[:, last_actions_start:command_start], mirror
     )
     # velocity command
     obs[:, command_start : command_start + 3] = obs[
@@ -182,23 +173,52 @@ def flip_k1_policy_obs_left_right(
     return obs
 
 
-def flip_k1_critic_obs_left_right(
-    obs: torch.Tensor,
-    inverted_indices: tuple[int, ...] = K1_INVERTED_JOINT_INDICES,
-) -> torch.Tensor:
+def flip_actor_obs_left_right(obs: torch.Tensor, mirror: JointMirror) -> torch.Tensor:
+    """Mirror an actor observation that may stack several history frames.
+
+    mjlab flattens history per term, so a stacked actor observation is term-major:
+    ``[base_ang_vel(H*3), projected_gravity(H*3), joint_pos(H*J), ...]``, each term
+    oldest frame first. Regroup it into frames, mirror each frame, and restore the
+    term-major layout. With ``H == 1`` this is ``flip_policy_obs_left_right``.
+    """
+    term_dims = _policy_term_dims(mirror)
+    policy_dim = sum(term_dims)
+    n_envs, actor_dim = obs.shape
+    history_len = actor_dim // policy_dim
+    if history_len == 1:
+        return flip_policy_obs_left_right(obs, mirror)
+
+    blocks = torch.split(obs, [history_len * dim for dim in term_dims], dim=1)
+    frames = torch.cat(
+        [
+            block.reshape(n_envs, history_len, dim)
+            for block, dim in zip(blocks, term_dims)
+        ],
+        dim=-1,
+    )
+    frames = flip_policy_obs_left_right(frames.reshape(-1, policy_dim), mirror)
+    frames = frames.reshape(n_envs, history_len, policy_dim)
+    return torch.cat(
+        [
+            block.reshape(n_envs, -1)
+            for block in torch.split(frames, list(term_dims), dim=-1)
+        ],
+        dim=1,
+    )
+
+
+def flip_critic_obs_left_right(obs: torch.Tensor, mirror: JointMirror) -> torch.Tensor:
     obs = obs.clone()
     policy_dim = obs.shape[1] - CRITIC_EXTRA_DIM
-    if not _is_supported_policy_dim(policy_dim):
+    if policy_dim != _policy_dim(mirror):
         raise ValueError(
             f"Unsupported critic observation dim: {obs.shape[1]}. "
-            f"Expected policy part of one of {SUPPORTED_POLICY_DIMS} "
+            f"Expected policy part of {_policy_dim(mirror)} "
             f"plus {CRITIC_EXTRA_DIM} extra dims."
         )
 
     # policy obs
-    obs[:, :policy_dim] = flip_k1_policy_obs_left_right(
-        obs[:, :policy_dim], inverted_indices
-    )
+    obs[:, :policy_dim] = flip_policy_obs_left_right(obs[:, :policy_dim], mirror)
 
     # base lin vel: [x, y, z] -> [x, -y, z]
     base_lin_vel_start = policy_dim
@@ -249,75 +269,31 @@ def flip_k1_critic_obs_left_right(
     return obs
 
 
-SUPPORTED_POLICY_DIMS = (POLICY_DIM_NO_BASE_LIN_VEL,)
-
-
-def _is_supported_policy_dim(policy_dim: int) -> bool:
-    return _get_num_linear_obs_blocks(policy_dim) is not None
-
-
-def _get_num_linear_obs_blocks(policy_dim: int) -> int | None:
+def _get_num_linear_obs_blocks(policy_dim: int, mirror: JointMirror) -> int | None:
     """Infer number of leading 3D base linear vectors from policy dim.
 
-    Layout is:
-    [base_ang_vel(3), projected_gravity(3), joint_pos(22), joint_vel(22),
-     last_action(22), command(3)]
+    The current velocity policy layout (see ``_policy_dim``) has none.
     """
-    if policy_dim != POLICY_DIM_NO_BASE_LIN_VEL:
+    if policy_dim != _policy_dim(mirror):
         return None
     return 0
 
 
-def _switch_k1_joints_left_right(
-    joints: torch.Tensor,
-    inverted_indices: tuple[int, ...] = K1_INVERTED_JOINT_INDICES,
+def _switch_joints_left_right(
+    joints: torch.Tensor, mirror: JointMirror
 ) -> torch.Tensor:
-    """Switch left and right joints in the K1 joint tensor.
+    """Switch left and right joints in a joint tensor of shape (..., J).
 
-    Joint order:
-
-    'Head_Yaw' (Inverted), 'Head_Pitch',
-    'Left_Shoulder_Pitch', 'Left_Shoulder_Roll' (Inverted), 'Left_Elbow_Pitch', 'Left_Elbow_Yaw' (Inverted),
-    'Right_Shoulder_Pitch', 'Right_Shoulder_Roll' (Inverted), 'Right_Elbow_Pitch', 'Right_Elbow_Yaw' (Inverted),
-    'Left_Hip_Pitch', 'Left_Hip_Roll' (Inverted), 'Left_Hip_Yaw' (Inverted), 'Left_Knee_Pitch', 'Left_Ankle_Pitch', 'Left_Ankle_Roll' (Inverted),
-    'Right_Hip_Pitch', 'Right_Hip_Roll' (Inverted), 'Right_Hip_Yaw' (Inverted), 'Right_Knee_Pitch', 'Right_Ankle_Pitch', 'Right_Ankle_Roll' (Inverted)
-
-    Joints marked as "Inverted" need to have their sign flipped when calculating the left-right symmetry.
-
-    Args:
-        joint_tensor (torch.Tensor): The joint tensor of shape (..., 22).
+    Each slot takes its mirror counterpart's value, and slots whose axes change sign
+    under a left/right mirror (roll and yaw) are negated; see ``JointMirror``.
     """
-    if joints.shape[1] != K1_JOINT_DIM:
+    if joints.shape[1] != len(mirror.perm):
         raise ValueError(
-            f"Unsupported joint tensor dim: {joints.shape[1]}. Expected {K1_JOINT_DIM}."
+            f"Unsupported joint tensor dim: {joints.shape[1]}. "
+            f"Expected {len(mirror.perm)}."
         )
-    joints_flipped = torch.zeros_like(joints)
+    joints_flipped = joints[:, list(mirror.perm)]
 
-    # Head joints
-    joints_flipped[:, :2] = joints[:, :2]
-    # Shoulders and Elbows
-    joints_flipped[:, 2:6] = joints[:, 6:10]
-    joints_flipped[:, 6:10] = joints[:, 2:6]
-    # Hips, Knees, Ankles
-    joints_flipped[:, 10:16] = joints[:, 16:22]
-    joints_flipped[:, 16:22] = joints[:, 10:16]
-
-    joints_flipped[:, list(inverted_indices)] = -joints_flipped[
-        :, list(inverted_indices)
-    ]
+    joints_flipped[:, list(mirror.inverted)] = -joints_flipped[:, list(mirror.inverted)]
 
     return joints_flipped
-
-
-flip_k1_parallel_action_left_right = partial(
-    flip_k1_action_left_right,
-    inverted_indices=K1_PARALLEL_INVERTED_JOINT_INDICES,
-)
-flip_k1_parallel_policy_obs_left_right = partial(
-    flip_k1_policy_obs_left_right,
-    inverted_indices=K1_PARALLEL_INVERTED_JOINT_INDICES,
-)
-flip_k1_parallel_critic_obs_left_right = partial(
-    flip_k1_critic_obs_left_right,
-    inverted_indices=K1_PARALLEL_INVERTED_JOINT_INDICES,
-)
